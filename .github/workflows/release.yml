@@ -2,8 +2,10 @@ name: Release
 
 # Triggered by pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`)
 # — not by merging to main. Builds and publishes a drag-to-Applications
-# ShowClock.dmg to GitHub Releases with auto-generated notes from merged PRs
-# since the last tag.
+# ShowClock.dmg to GitHub Releases with notes built from commit subjects
+# since the last tag (not GitHub's own auto-generate-notes: that only lists
+# merged PRs, and this project pushes straight to main — it produced nothing
+# but a bare compare link).
 #
 # Unsigned, not notarized: that requires a paid Apple Developer Program
 # membership ($99/year), which this project doesn't have. Gatekeeper will
@@ -22,6 +24,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Extract version from tag
         id: version
@@ -37,15 +41,23 @@ jobs:
         run: ./Packaging/make-dmg.sh "dist/ShowClock.app" "dist/ShowClock.dmg"
 
       - name: Generate release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'EOF'
           > **Not notarized.** This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" on first launch. To open it: right-click (or Control-click) `ShowClock.app` → **Open** → **Open** again in the confirmation dialog. You only need to do this once.
 
+          ## What's changed
           EOF
-          gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f "tag_name=${{ github.ref_name }}" --jq .body >> notes.md
+          PREV_TAG=$(git tag --sort=-creatordate | grep -vx "${{ github.ref_name }}" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            git log "${PREV_TAG}..${{ github.ref_name }}" --pretty=format:"- %s" >> notes.md
+            {
+              echo ""
+              echo ""
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}"
+            } >> notes.md
+          else
+            git log "${{ github.ref_name }}" --pretty=format:"- %s" >> notes.md
+          fi
 
       - name: Publish GitHub release
         env:
