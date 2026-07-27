@@ -46,14 +46,14 @@ struct ClockView: View {
                         .foregroundStyle(settings.selectedTheme.accentColor)
                         .lineLimit(1)
                 } else if let nextCue = qlab.nextCueName {
+                    // No else: nothing to show once there's no next cue,
+                    // whether that's because QLab isn't connected or the show
+                    // has simply reached its last one — "No cue selected"
+                    // read like an operator mistake in both cases.
                     Text("Next: \(nextCue)")
                         .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
                         .foregroundStyle(settings.selectedTheme.accentColor)
                         .lineLimit(1)
-                } else {
-                    Text("No cue selected")
-                        .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
-                        .foregroundStyle(settings.selectedTheme.accentColor.opacity(0.4))
                 }
 
                 Spacer()

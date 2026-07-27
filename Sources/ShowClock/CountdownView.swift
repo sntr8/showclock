@@ -53,15 +53,15 @@ struct CountdownView: View {
                     .foregroundStyle(settings.selectedTheme.primaryColor)
                     .opacity(isOvertime && !flashOn ? 0 : 1)
 
+                // No else: nothing to show once there's no next cue, whether
+                // that's because QLab isn't connected or the show has simply
+                // reached its last one — "No cue selected" read like an
+                // operator mistake in both cases.
                 if let next = qlab.nextCueName {
                     Text("Next: \(next)")
                         .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
                         .foregroundStyle(settings.selectedTheme.accentColor)
                         .lineLimit(1)
-                } else {
-                    Text("No cue selected")
-                        .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
-                        .foregroundStyle(settings.selectedTheme.accentColor.opacity(0.4))
                 }
 
                 Spacer()
