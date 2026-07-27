@@ -3,7 +3,12 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var qlab: QLabManager
-    @EnvironmentObject var display: DisplayWindowController
+    // A plain closure, not @EnvironmentObject var display: DisplayWindowController:
+    // that would inject the controller (which owns this window) into the very
+    // view hierarchy the window hosts — window -> hostingView -> environment
+    // -> controller -> window, a genuine reference cycle threaded through
+    // NSHostingView. A closure only captures what it needs.
+    let onClose: () -> Void
     @State private var now = Date()
     @State private var flashOn = true
     @State private var hoveringClose = false
@@ -52,7 +57,7 @@ struct ContentView: View {
                 // routing to this window can't be relied on (activation policy/
                 // first-responder quirks), so this is the one guaranteed escape hatch.
                 Button {
-                    display.close()
+                    onClose()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 20))

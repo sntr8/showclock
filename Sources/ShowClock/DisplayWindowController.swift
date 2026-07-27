@@ -34,10 +34,9 @@ final class DisplayWindowController: ObservableObject {
     func show(on screen: NSScreen, settings: AppSettings, qlab: QLabManager, activate: Bool = true) {
         close()
 
-        let content = ContentView()
+        let content = ContentView(onClose: { [weak self] in self?.close() })
             .environmentObject(settings)
             .environmentObject(qlab)
-            .environmentObject(self)
 
         let window = KioskWindow(
             contentRect: screen.frame,
@@ -95,27 +94,20 @@ final class DisplayWindowController: ObservableObject {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
-        // close(), not orderOut(nil): orderOut only hides a window, it
-        // doesn't remove it from AppKit's own window registry or release its
-        // resources. The hosted ContentView gets .environmentObject(self)
-        // injected, so the chain (window -> hostingView -> SwiftUI
-        // environment -> back to this controller) meant every close (or
-        // every display switch, which closes and rebuilds internally) leaked
-        // the previous window and its whole view tree — real growth over a
-        // show with several open/close/display-switch cycles.
-        //
-        // contentView = nil first, before close(): that environment chain is
-        // a genuine reference cycle (this controller -> window -> hostingView
-        // -> environment -> back to this controller), and letting close()'s
-        // own internal teardown be what releases that exotic hosted content
-        // view, as a black box, is what was crashing (EXC_BAD_ACCESS in
-        // objc_release during a later autorelease pool drain — a corrupted
-        // object, not a straightforward leak). Detaching and releasing the
-        // content view ourselves first, via a plain ARC assignment, means
-        // close() only ever has an empty, ordinary window left to tear down.
-        window?.contentView = nil
-        window?.close()
-        window = nil
+        guard let window else { return }
+        self.window = nil
         isShowing = false
+
+        // orderOut only, deliberately not window.close(): calling .close()
+        // on this specific window (borderless, .statusBar level, SwiftUI-
+        // hosted content) reliably crashes deep inside AppKit's own teardown
+        // (EXC_BAD_ACCESS during a later autorelease pool drain, zero
+        // application frames on the crashing thread — confirmed reproducible
+        // across several independent fix attempts that only changed the
+        // timing/ordering of the .close() call, never removing it). This
+        // does mean the window and its SwiftUI view tree leak on every close
+        // or display switch instead of being released — a real but bounded
+        // cost, and a far better trade than a crash mid-show.
+        window.orderOut(nil)
     }
 }
