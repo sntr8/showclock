@@ -12,6 +12,11 @@ class AppSettings: ObservableObject {
     @Published var showEndEnabled: Bool = true { didSet { saveIfLoaded() } }
     @Published var showEndHour: Int = 23 { didSet { saveIfLoaded() } }
     @Published var showEndMinute: Int = 0 { didSet { saveIfLoaded() } }
+    // For overnight shows, how late into the morning "last night's" show
+    // still counts as the active one (for overtime purposes) before the
+    // clock switches to treating tonight's occurrence as upcoming. Rarely
+    // needs changing, so it lives in the Cmd+, Settings scene.
+    @Published var overnightCutoffHour: Int = 5 { didSet { saveIfLoaded() } }
     @Published var themes: [Theme] = [.day, .night] { didSet { saveIfLoaded() } }
     @Published var selectedThemeID: UUID = Theme.night.id { didSet { saveIfLoaded() } }
     @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID() { didSet { saveIfLoaded() } }
@@ -64,29 +69,59 @@ class AppSettings: ObservableObject {
         return false
     }
 
-    // Returns today's date with the showtime HH:MM. Always "today" so the app resets naturally.
-    var showtimeDate: Date {
+    // The show window (start, end) anchored to a given calendar day — end
+    // pushed a day later than start if it's at or before it (post-midnight
+    // shows).
+    private func window(anchoredToDayOf date: Date) -> (start: Date, end: Date) {
         let cal = Calendar.current
-        var comps = cal.dateComponents([.year, .month, .day], from: Date())
+        var comps = cal.dateComponents([.year, .month, .day], from: date)
         comps.hour = showtimeHour
         comps.minute = showtimeMinute
         comps.second = 0
-        return cal.date(from: comps) ?? Date()
-    }
-
-    // Returns show end date. If the end time is at or before showtime, adds 1 day (post-midnight shows).
-    var showEndDate: Date {
-        let cal = Calendar.current
-        var comps = cal.dateComponents([.year, .month, .day], from: Date())
+        let start = cal.date(from: comps) ?? date
         comps.hour = showEndHour
         comps.minute = showEndMinute
-        comps.second = 0
-        let endSameDay = cal.date(from: comps) ?? Date()
-        if showEndHour < showtimeHour || (showEndHour == showtimeHour && showEndMinute <= showtimeMinute) {
-            return cal.date(byAdding: .day, value: 1, to: endSameDay)!
-        }
-        return endSameDay
+        let endSameDay = cal.date(from: comps) ?? date
+        let end = (showEndHour < showtimeHour || (showEndHour == showtimeHour && showEndMinute <= showtimeMinute))
+            ? cal.date(byAdding: .day, value: 1, to: endSameDay) ?? endSameDay
+            : endSameDay
+        return (start, end)
     }
+
+    // Anchoring purely to "today" broke as soon as a post-midnight show (e.g.
+    // 23:00-01:00) crossed into the new calendar day: showtimeDate would
+    // recompute to a future time later *that same new day*, making an
+    // already-running (or still-in-overtime) overnight show look like it
+    // hadn't started yet. Anchor to yesterday's occurrence instead for as
+    // long as it's still running, or only recently ended (before
+    // overnightCutoffHour) — not just until its own nominal end, otherwise
+    // the moment "now" ticks past a scheduled 01:35 end, this would
+    // immediately start comparing against *tonight's* not-yet-started show
+    // instead of checking whether last night's is still in overtime.
+    private var activeWindow: (start: Date, end: Date) {
+        let now = Date()
+        let today = window(anchoredToDayOf: now)
+        guard now < today.start, let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now) else {
+            return today
+        }
+        let priorNight = window(anchoredToDayOf: yesterday)
+        let cal = Calendar.current
+        var cutoffComps = cal.dateComponents([.year, .month, .day], from: now)
+        cutoffComps.hour = overnightCutoffHour
+        cutoffComps.minute = 0
+        cutoffComps.second = 0
+        let cutoff = cal.date(from: cutoffComps) ?? now
+        if now < cutoff {
+            return priorNight
+        }
+        return today
+    }
+
+    // Returns the showtime HH:MM on whichever day is actually in progress.
+    var showtimeDate: Date { activeWindow.start }
+
+    // Returns the show end date, on the day after showtime if the show crosses midnight.
+    var showEndDate: Date { activeWindow.end }
 
     init() {
         load()
@@ -103,6 +138,7 @@ class AppSettings: ObservableObject {
         d.set(showEndEnabled, forKey: "showEndEnabled")
         d.set(showEndHour, forKey: "showEndHour")
         d.set(showEndMinute, forKey: "showEndMinute")
+        d.set(overnightCutoffHour, forKey: "overnightCutoffHour")
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
         d.set(autoOpenClockOnLaunch, forKey: "autoOpenClockOnLaunch")
@@ -122,6 +158,7 @@ class AppSettings: ObservableObject {
         if d.object(forKey: "showEndEnabled") != nil { showEndEnabled = d.bool(forKey: "showEndEnabled") }
         let eh = d.integer(forKey: "showEndHour"); if eh > 0 { showEndHour = eh }
         showEndMinute = d.integer(forKey: "showEndMinute")
+        let oc = d.integer(forKey: "overnightCutoffHour"); if oc > 0 { overnightCutoffHour = oc }
         if let s = d.string(forKey: "selectedThemeID"), let id = UUID(uuidString: s) { selectedThemeID = id }
         if d.object(forKey: "selectedDisplayID") != nil {
             selectedDisplayID = CGDirectDisplayID(d.integer(forKey: "selectedDisplayID"))
