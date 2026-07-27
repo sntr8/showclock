@@ -15,6 +15,7 @@ class AppSettings: ObservableObject {
     @Published var themes: [Theme] = [.day, .night] { didSet { saveIfLoaded() } }
     @Published var selectedThemeID: UUID = Theme.night.id { didSet { saveIfLoaded() } }
     @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID() { didSet { saveIfLoaded() } }
+    @Published var autoOpenClockOnLaunch: Bool = false { didSet { saveIfLoaded() } }
 
     // Guards against `load()` itself triggering the didSet-save chain above:
     // without this, setting the first property (before the rest have been
@@ -98,6 +99,7 @@ class AppSettings: ObservableObject {
         d.set(showEndMinute, forKey: "showEndMinute")
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
+        d.set(autoOpenClockOnLaunch, forKey: "autoOpenClockOnLaunch")
         if let encoded = try? JSONEncoder().encode(themes) { d.set(encoded, forKey: "themes") }
     }
 
@@ -114,6 +116,9 @@ class AppSettings: ObservableObject {
         if let s = d.string(forKey: "selectedThemeID"), let id = UUID(uuidString: s) { selectedThemeID = id }
         if d.object(forKey: "selectedDisplayID") != nil {
             selectedDisplayID = CGDirectDisplayID(d.integer(forKey: "selectedDisplayID"))
+        }
+        if d.object(forKey: "autoOpenClockOnLaunch") != nil {
+            autoOpenClockOnLaunch = d.bool(forKey: "autoOpenClockOnLaunch")
         }
         if let data = d.data(forKey: "themes"),
            let decoded = try? JSONDecoder().decode([Theme].self, from: data) {

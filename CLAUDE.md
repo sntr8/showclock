@@ -16,15 +16,15 @@ No external dependencies. macOS 14+, Swift 5.9+.
 | File | Role |
 |------|------|
 | ShowTimerApp.swift | App entry. Only scenes are Settings and the theme-editor WindowGroup; an `AppDelegate` closes any auto-opened window at launch and force-shows Settings, so Settings is the only window on launch |
-| DisplayWindowController.swift | Owns the borderless kiosk `NSWindow` that shows the clock full screen on the chosen `NSScreen`; opened/closed from Settings, not a SwiftUI `WindowGroup` |
+| DisplayWindowController.swift | Owns the borderless kiosk `NSWindow` that shows the clock full screen on the chosen `NSScreen`; opened/closed/moved from Settings, not a SwiftUI `WindowGroup` |
 | ContentView.swift | Root view rendered inside the kiosk window; picks plain clock vs. countdown/overtime via `AppSettings.isShowingPlainClock` (see Architecture notes) |
 | ClockView.swift | Full-screen plain clock (HH:MM:SS) — pre-show, no-end-time, and post-overtime states all render this. Shows "Show at HH:MM" only while pre-show, and cue info ("Next: X") only otherwise — the no-end-time mode has nowhere else to show cue info, since CountdownView never renders there |
 | CountdownView.swift | Show-window countdown (`-HH:MM:SS`) and overtime (`+HH:MM:SS`, flashing) |
-| AppSettings.swift | ObservableObject; all persisted settings via UserDefaults, incl. `selectedDisplayID`, `showEndEnabled` |
+| AppSettings.swift | ObservableObject; all persisted settings via UserDefaults, incl. `selectedDisplayID`, `showEndEnabled`, `autoOpenClockOnLaunch` |
 | Theme.swift | Theme model + Color↔hex helpers |
 | ThemeEditorView.swift | Standalone window for creating/editing/deleting themes |
 | SettingsView.swift | The main (only-at-launch) window: OSC config, show times, theme picker, display picker + "Open Clock Display" |
-| ScreenArrangementView.swift | Mini diagram of connected displays for picking which screen the clock opens on. The selected display shows a live preview that mirrors ContentView's actual current phase (clock or countdown/overtime), not just always a clock |
+| ScreenArrangementView.swift | Mini diagram of connected displays for picking which screen the clock opens on. The selected display shows a live preview that mirrors ContentView's actual current phase (clock or countdown/overtime), not just always a clock. Each display is a `Button`, not a bare `.onTapGesture` — see Architecture notes |
 | QLab/QLabManager.swift | OSC UDP client; polls QLab every 1 s for the selected cue, `runningOrPausedCues` (drives `hasActiveCues`, used to end overtime early), and the full cue list + per-cue `type`/`duration`/`armed`/`actionElapsed` (drives `totalRemainingSeconds` — the whole rest-of-show estimate, shown only in Settings; see docs/qlab-osc.md for the non-obvious "where does the sum start" logic) |
 
 ## Architecture notes
@@ -32,6 +32,7 @@ No external dependencies. macOS 14+, Swift 5.9+.
 - **No external packages.** OSC is implemented with raw POSIX UDP sockets in QLabManager; OSC message encode/decode is hand-rolled (QLab's subset is simple).
 - **QLab reply format.** QLab replies are addressed to `/reply` + the original query path (e.g. `/reply/workspaces`), with a single JSON string argument — not `/reply` with the path and JSON as two arguments. See docs/qlab-osc.md.
 - **Launch behavior.** Only the Settings window opens on launch. The clock itself is *not* a SwiftUI `WindowGroup` window — `DisplayWindowController` creates a borderless `NSWindow` pinned to a specific `NSScreen`, above the menu bar level, shown/closed via the "Open/Close Clock Display" button in Settings.
+- **Display switching.** Picking a different display in Settings while the clock is already open calls `show(activate: false)`, not a plain `setFrame` move: with "Displays have separate Spaces" (macOS default), a window is tied to the Space of the display it was created on, so it has to be rebuilt fresh on the new screen to actually relocate — `activate: false` skips the app-activation/key-window steps so Settings doesn't lose focus in the process.
 - **Font sizing.** Numbers use `Font.system(...).monospacedDigit()` + `.fontWidth(.compressed)` + `minimumScaleFactor(0.01)`. Compressed width gives a larger rendered height than monospaced. The big countdown number is 70% of window height in CountdownView (82% in ClockView, which has less competing text); the two info lines are 12%/9% respectively — sized so nothing overflows the fixed-height layout.
 - **Theme editor** opens as a separate native window (`WindowGroup(id: "theme-editor")`), not a sheet, so it has standard traffic-light buttons.
 - **Showtime logic.** Times are stored as HH:MM only; always applied to today's date. If show-end ≤ showtime, end is treated as next day (post-midnight shows).

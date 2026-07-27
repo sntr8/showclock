@@ -23,7 +23,15 @@ final class DisplayWindowController: ObservableObject {
     private var window: NSWindow?
     private var escapeMonitor: Any?
 
-    func show(on screen: NSScreen, settings: AppSettings, qlab: QLabManager) {
+    // activate: false is for moving an already-open window to a newly picked
+    // display without stealing focus from Settings. It still rebuilds the
+    // window rather than just calling setFrame on the old one: with
+    // "Displays have separate Spaces" (macOS default), a window is tied to
+    // the Space of the display it was created on, and merely repositioning
+    // its frame onto another screen doesn't re-associate it with that
+    // display's Space — it just gets clipped/hidden. Recreating it fresh on
+    // the target screen is what actually relocates it.
+    func show(on screen: NSScreen, settings: AppSettings, qlab: QLabManager, activate: Bool = true) {
         close()
 
         let content = ContentView()
@@ -53,9 +61,13 @@ final class DisplayWindowController: ObservableObject {
         window.isOpaque = true
         window.hasShadow = false
 
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        if activate {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderFront(nil)
+        }
 
         self.window = window
         isShowing = true
@@ -75,7 +87,15 @@ final class DisplayWindowController: ObservableObject {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
-        window?.orderOut(nil)
+        // close(), not orderOut(nil): orderOut only hides a window, it
+        // doesn't remove it from AppKit's own window registry or release its
+        // resources. The hosted ContentView gets .environmentObject(self)
+        // injected, so the chain (window -> hostingView -> SwiftUI
+        // environment -> back to this controller) meant every close (or
+        // every display switch, which closes and rebuilds internally) leaked
+        // the previous window and its whole view tree — real growth over a
+        // show with several open/close/display-switch cycles.
+        window?.close()
         window = nil
         isShowing = false
     }

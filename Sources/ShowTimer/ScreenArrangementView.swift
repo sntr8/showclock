@@ -8,7 +8,12 @@ struct ScreenArrangementView: View {
     @Binding var selectedDisplayID: CGDirectDisplayID
     let theme: Theme
 
-    private var screens: [NSScreen] { NSScreen.screens }
+    // NSScreen.screens is a live snapshot at read time, but nothing forces a
+    // re-render when a display connects/disconnects — so without this state
+    // (refreshed on the notification below) the picker just shows whatever
+    // was plugged in when the view last happened to redraw for some other
+    // reason, until the app restarts.
+    @State private var screens: [NSScreen] = NSScreen.screens
 
     private var unionFrame: CGRect {
         screens.dropFirst().reduce(screens.first?.frame ?? .zero) { $0.union($1.frame) }
@@ -32,34 +37,47 @@ struct ScreenArrangementView: View {
                     // Flip Y: AppKit screen coordinates are bottom-left origin.
                     let midY = (union.maxY - screen.frame.maxY) * scale + offsetY + height / 2
 
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(theme.backgroundColor)
+                    // A Button, not a plain view + .onTapGesture: this sits
+                    // inside a Form/List row, which has its own row-selection
+                    // hit-testing that can swallow a bare tap gesture on a
+                    // subview inconsistently. Buttons are the mechanism
+                    // SwiftUI Lists/Forms specifically handle correctly
+                    // alongside that, which a raw gesture recognizer isn't.
+                    Button {
+                        selectedDisplayID = screen.displayID
+                    } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(theme.backgroundColor)
 
-                        if isSelected {
-                            MiniClockPreview(theme: theme)
-                                .padding(6)
+                            if isSelected {
+                                MiniClockPreview(theme: theme)
+                                    .padding(6)
+                            }
+
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(
+                                    isSelected ? Color.accentColor : Color.secondary.opacity(0.4),
+                                    lineWidth: isSelected ? 2 : 1
+                                )
+
+                            Text(screen.localizedName)
+                                .font(.system(size: 9))
+                                .foregroundStyle(isSelected ? theme.accentColor : .secondary)
+                                .padding(4)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         }
-
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(
-                                isSelected ? Color.accentColor : Color.secondary.opacity(0.4),
-                                lineWidth: isSelected ? 2 : 1
-                            )
-
-                        Text(screen.localizedName)
-                            .font(.system(size: 9))
-                            .foregroundStyle(isSelected ? theme.accentColor : .secondary)
-                            .padding(4)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .frame(width: width, height: height)
+                        .contentShape(Rectangle())
                     }
-                    .frame(width: width, height: height)
+                    .buttonStyle(.plain)
                     .position(x: midX, y: midY)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedDisplayID = screen.displayID }
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            screens = NSScreen.screens
         }
     }
 }

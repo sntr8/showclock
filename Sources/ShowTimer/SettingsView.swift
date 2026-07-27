@@ -34,6 +34,14 @@ struct SettingsView: View {
                     theme: settings.selectedTheme
                 )
                 .frame(height: 150)
+                .onChange(of: settings.selectedDisplayID) { _, _ in
+                    // activate: false — this rebuilds the window on the new
+                    // screen (needed so it picks up that display's Space)
+                    // without stealing focus from Settings, unlike the
+                    // explicit "Open Clock Display" button below.
+                    guard display.isShowing, let screen = settings.resolvedScreen else { return }
+                    display.show(on: screen, settings: settings, qlab: qlab, activate: false)
+                }
 
                 HStack {
                     Button(display.isShowing ? "Close Clock Display" : "Open Clock Display") {
@@ -51,6 +59,8 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
             }
 
             // MARK: QLab OSC
@@ -160,6 +170,12 @@ struct SettingsView: View {
             didAutoConnect = true
             qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
             installClickToResignMonitor()
+            // activate: false — Settings should stay the frontmost, focused
+            // window at launch; the clock display should just quietly appear
+            // on its target screen alongside it, not steal focus away.
+            if settings.autoOpenClockOnLaunch, let screen = settings.resolvedScreen {
+                display.show(on: screen, settings: settings, qlab: qlab, activate: false)
+            }
             // Without this, launching via `swift run` (or any unbundled
             // executable) never makes the app the frontmost/active one —
             // its window is visible and clickable, but actual keyboard
