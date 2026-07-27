@@ -186,6 +186,25 @@ struct SettingsView: View {
             // never did.
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+
+            if !settings.hasAskedAboutAutoUpdateCheck {
+                // Deferred a turn: calling runModal() synchronously this
+                // early in onAppear — before the window has actually become
+                // key — doesn't reliably block; it can return almost
+                // immediately with a default response instead of genuinely
+                // waiting for the user.
+                DispatchQueue.main.async {
+                    settings.hasAskedAboutAutoUpdateCheck = true
+                    let alert = NSAlert()
+                    alert.messageText = "Check for Updates Automatically?"
+                    alert.informativeText = "ShowClock can check GitHub for a newer release each time it launches. You can change this later, and \"Check for Updates...\" in the app menu always works regardless."
+                    alert.addButton(withTitle: "Yes, Check Automatically")
+                    alert.addButton(withTitle: "No Thanks")
+                    settings.autoCheckForUpdates = alert.runModal() == .alertFirstButtonReturn
+                }
+            } else if settings.autoCheckForUpdates {
+                UpdateChecker.check(interactive: false)
+            }
         }
         .onChange(of: qlab.isConnected) { _, connected in
             guard connected else { return }

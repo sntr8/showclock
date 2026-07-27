@@ -22,6 +22,12 @@ struct ShowClockApp: App {
         .defaultSize(width: 480, height: 760)
         .commands {
             CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    UpdateChecker.check(interactive: true)
+                }
+                Toggle("Check for Updates Automatically", isOn: $settings.autoCheckForUpdates)
+            }
+            CommandGroup(after: .appInfo) {
                 Divider()
                 ForEach(Array(settings.themes.enumerated()), id: \.element.id) { index, theme in
                     Button(theme.name) {

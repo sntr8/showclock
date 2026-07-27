@@ -17,6 +17,11 @@ class AppSettings: ObservableObject {
     @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID() { didSet { saveIfLoaded() } }
     @Published var autoOpenClockOnLaunch: Bool = false { didSet { saveIfLoaded() } }
     @Published var showQRCode: Bool = true { didSet { saveIfLoaded() } }
+    @Published var autoCheckForUpdates: Bool = false { didSet { saveIfLoaded() } }
+    // Whether the one-time "want automatic update checks?" prompt has been
+    // shown yet — separate from autoCheckForUpdates itself so declining it
+    // is remembered too (otherwise every launch would ask again).
+    @Published var hasAskedAboutAutoUpdateCheck: Bool = false { didSet { saveIfLoaded() } }
 
     // Guards against `load()` itself triggering the didSet-save chain above:
     // without this, setting the first property (before the rest have been
@@ -102,6 +107,8 @@ class AppSettings: ObservableObject {
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
         d.set(autoOpenClockOnLaunch, forKey: "autoOpenClockOnLaunch")
         d.set(showQRCode, forKey: "showQRCode")
+        d.set(autoCheckForUpdates, forKey: "autoCheckForUpdates")
+        d.set(hasAskedAboutAutoUpdateCheck, forKey: "hasAskedAboutAutoUpdateCheck")
         if let encoded = try? JSONEncoder().encode(themes) { d.set(encoded, forKey: "themes") }
     }
 
@@ -124,6 +131,12 @@ class AppSettings: ObservableObject {
         }
         if d.object(forKey: "showQRCode") != nil {
             showQRCode = d.bool(forKey: "showQRCode")
+        }
+        if d.object(forKey: "autoCheckForUpdates") != nil {
+            autoCheckForUpdates = d.bool(forKey: "autoCheckForUpdates")
+        }
+        if d.object(forKey: "hasAskedAboutAutoUpdateCheck") != nil {
+            hasAskedAboutAutoUpdateCheck = d.bool(forKey: "hasAskedAboutAutoUpdateCheck")
         }
         if let data = d.data(forKey: "themes"),
            let decoded = try? JSONDecoder().decode([Theme].self, from: data) {
