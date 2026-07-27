@@ -1,0 +1,19 @@
+name: CI
+
+# Build-only validation on every push/PR — fast feedback, no signing, no
+# release artifacts. Publishing is a separate, deliberate step (see
+# release.yml), triggered by pushing a version tag, not by merging.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      # Add `swift test` here once a test target exists in Package.swift —
+      # left out for now since there isn't one yet.

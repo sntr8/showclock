@@ -1,0 +1,57 @@
+name: Release
+
+# Triggered by pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`)
+# — not by merging to main. Builds and publishes a drag-to-Applications
+# ShowTimer.dmg to GitHub Releases with auto-generated notes from merged PRs
+# since the last tag.
+#
+# Unsigned, not notarized: that requires a paid Apple Developer Program
+# membership ($99/year), which this project doesn't have. Gatekeeper will
+# warn downloaders that the app is from an "unidentified developer" — the
+# release notes below tell them how to get past that (right-click → Open,
+# once). See docs/release-process.md if that ever changes.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build .app bundle
+        run: ./Packaging/build-app.sh "${{ steps.version.outputs.version }}"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build DMG
+        run: ./Packaging/make-dmg.sh "dist/ShowTimer.app" "dist/ShowTimer.dmg"
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          > **Not notarized.** This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" on first launch. To open it: right-click (or Control-click) `ShowTimer.app` → **Open** → **Open** again in the confirmation dialog. You only need to do this once.
+
+          EOF
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f "tag_name=${{ github.ref_name }}" --jq .body >> notes.md
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "dist/ShowTimer.dmg" \
+            --title "ShowTimer ${{ github.ref_name }}" \
+            --notes-file notes.md
