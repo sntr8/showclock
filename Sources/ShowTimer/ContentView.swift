@@ -15,14 +15,15 @@ struct ContentView: View {
     let flashTimer = Timer.publish(every: 1.0 / 3.0, on: .main, in: .common).autoconnect()
 
     private var isPreShow: Bool { now < settings.showtimeDate }
+    private var showPlainClock: Bool { settings.isShowingPlainClock(at: now, qlab: qlab) }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             settings.selectedTheme.backgroundColor
                 .ignoresSafeArea()
 
-            if isPreShow {
-                ClockView(now: now)
+            if showPlainClock {
+                ClockView(now: now, isPreShow: isPreShow)
             } else {
                 CountdownView(now: now, flashOn: flashOn)
             }

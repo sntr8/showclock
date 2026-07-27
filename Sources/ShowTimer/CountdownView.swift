@@ -8,14 +8,17 @@ struct CountdownView: View {
 
     private var diff: TimeInterval { settings.showEndDate.timeIntervalSince(now) }
     private var isOvertime: Bool { diff < 0 }
+    private var countdownString: String { Self.formatCountdown(diff) }
 
-    private var countdownString: String {
+    // Shared with the Settings display picker's live preview, so both always
+    // render the same "-HH:MM:SS" / "+HH:MM:SS" text for a given diff.
+    static func formatCountdown(_ diff: TimeInterval) -> String {
         let total = Int(abs(diff))
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
         let digits = String(format: "%02d:%02d:%02d", h, m, s)
-        return isOvertime ? "+\(digits)" : digits
+        return diff < 0 ? "+\(digits)" : "-\(digits)"
     }
 
     private var currentTimeString: String {
@@ -28,9 +31,12 @@ struct CountdownView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let subFontSize = geo.size.height * 0.055
+            // Trimmed from the main number's previous 0.82 to make real room
+            // for meaningfully bigger sub-text without the two overflowing
+            // the screen's fixed height between them.
+            let subFontSize = geo.size.height * 0.12
 
-            VStack(spacing: geo.size.height * 0.02) {
+            VStack(spacing: geo.size.height * 0.015) {
                 Spacer()
 
                 Text(currentTimeString)
@@ -39,14 +45,12 @@ struct CountdownView: View {
                     .lineLimit(1)
 
                 Text(countdownString)
-                    .font(Font.system(size: geo.size.height * 0.82, weight: .bold).monospacedDigit())
+                    .font(Font.system(size: geo.size.height * 0.70, weight: .bold).monospacedDigit())
                     .fontWidth(.compressed)
                     .minimumScaleFactor(0.01)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(isOvertime
-                        ? settings.selectedTheme.accentColor
-                        : settings.selectedTheme.primaryColor)
+                    .foregroundStyle(settings.selectedTheme.primaryColor)
                     .opacity(isOvertime && !flashOn ? 0 : 1)
 
                 if let next = qlab.nextCueName {

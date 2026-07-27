@@ -9,6 +9,7 @@ class AppSettings: ObservableObject {
     @Published var qlabPasscode: String = "" { didSet { saveIfLoaded() } }
     @Published var showtimeHour: Int = 20 { didSet { saveIfLoaded() } }
     @Published var showtimeMinute: Int = 0 { didSet { saveIfLoaded() } }
+    @Published var showEndEnabled: Bool = true { didSet { saveIfLoaded() } }
     @Published var showEndHour: Int = 23 { didSet { saveIfLoaded() } }
     @Published var showEndMinute: Int = 0 { didSet { saveIfLoaded() } }
     @Published var themes: [Theme] = [.day, .night] { didSet { saveIfLoaded() } }
@@ -33,6 +34,27 @@ class AppSettings: ObservableObject {
 
     var selectedTheme: Theme {
         themes.first(where: { $0.id == selectedThemeID }) ?? .night
+    }
+
+    // Whether the display should show the plain clock (vs. the countdown/
+    // overtime view) at a given moment. Pure function of settings + QLab
+    // state — no session-local "sticky" flag needed: once QLab's own
+    // rest-of-show estimate reaches zero, it naturally stays there (nothing
+    // spontaneously adds more cues), so this is safe to recompute every tick
+    // from scratch. Shared by the real display (ContentView) and the
+    // Settings display picker's live preview, so both always agree.
+    func isShowingPlainClock(at now: Date, qlab: QLabManager) -> Bool {
+        guard showEndEnabled else { return true }
+        if now < showtimeDate { return true }
+        guard now >= showEndDate else { return false }
+        // Past show end: keep showing overtime for as long as QLab says
+        // there's still show left, however long that takes — no fixed cutoff.
+        // Without a QLab connection there's no way to know, so don't assume
+        // the show is over; keep showing overtime rather than guessing.
+        if qlab.isConnected, let remaining = qlab.totalRemainingSeconds {
+            return remaining <= 0.5
+        }
+        return false
     }
 
     // Returns today's date with the showtime HH:MM. Always "today" so the app resets naturally.
@@ -71,6 +93,7 @@ class AppSettings: ObservableObject {
         d.set(qlabPasscode, forKey: "qlabPasscode")
         d.set(showtimeHour, forKey: "showtimeHour")
         d.set(showtimeMinute, forKey: "showtimeMinute")
+        d.set(showEndEnabled, forKey: "showEndEnabled")
         d.set(showEndHour, forKey: "showEndHour")
         d.set(showEndMinute, forKey: "showEndMinute")
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
@@ -85,6 +108,7 @@ class AppSettings: ObservableObject {
         if let pc = d.string(forKey: "qlabPasscode") { qlabPasscode = pc }
         let sh = d.integer(forKey: "showtimeHour"); if sh > 0 { showtimeHour = sh }
         showtimeMinute = d.integer(forKey: "showtimeMinute")
+        if d.object(forKey: "showEndEnabled") != nil { showEndEnabled = d.bool(forKey: "showEndEnabled") }
         let eh = d.integer(forKey: "showEndHour"); if eh > 0 { showEndHour = eh }
         showEndMinute = d.integer(forKey: "showEndMinute")
         if let s = d.string(forKey: "selectedThemeID"), let id = UUID(uuidString: s) { selectedThemeID = id }

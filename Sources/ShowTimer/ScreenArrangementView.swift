@@ -64,22 +64,30 @@ struct ScreenArrangementView: View {
     }
 }
 
+// Mirrors ContentView's own clock-vs-countdown choice (via the shared
+// isShowingPlainClock), so this preview shows whatever the real display is
+// actually showing right now, not just always a clock.
 private struct MiniClockPreview: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var qlab: QLabManager
     let theme: Theme
     @State private var now = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var timeString: String {
-        let c = Calendar.current
-        return String(format: "%02d:%02d:%02d",
-                      c.component(.hour, from: now),
-                      c.component(.minute, from: now),
-                      c.component(.second, from: now))
+    private var displayString: String {
+        if settings.isShowingPlainClock(at: now, qlab: qlab) {
+            let c = Calendar.current
+            return String(format: "%02d:%02d:%02d",
+                          c.component(.hour, from: now),
+                          c.component(.minute, from: now),
+                          c.component(.second, from: now))
+        }
+        return CountdownView.formatCountdown(settings.showEndDate.timeIntervalSince(now))
     }
 
     var body: some View {
         GeometryReader { geo in
-            Text(timeString)
+            Text(displayString)
                 .font(Font.system(size: geo.size.height * 0.55, weight: .bold).monospacedDigit())
                 .fontWidth(.compressed)
                 .minimumScaleFactor(0.01)

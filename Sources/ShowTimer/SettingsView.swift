@@ -12,6 +12,14 @@ struct SettingsView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var portText: String = ""
     @State private var didAutoConnect = false
+    // Snapshot of the host/port/passcode that were actually used for the
+    // current connection, captured the moment it succeeds — compared against
+    // the live settings to decide whether the Connect button should
+    // reappear (either the connection dropped, or these fields were edited
+    // since, meaning what's connected no longer matches what's configured).
+    @State private var connectedHost: String?
+    @State private var connectedPort: Int?
+    @State private var connectedPasscode: String?
     // The source of truth for the focus ring is this, not the AppKit
     // responder chain — poking makeFirstResponder(nil) from outside SwiftUI
     // doesn't reliably sync with SwiftUI's own render pass for the ring.
@@ -76,10 +84,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Button("Connect") {
-                        qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
+                    if !isConnectedWithCurrentSettings {
+                        Button("Connect") {
+                            qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
 
                     HStack(spacing: 6) {
                         Circle()
@@ -89,6 +99,17 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                // A separate subview, not inlined: qlab.totalRemainingSeconds
+                // ticks roughly every second while connected (it's driven by
+                // the live poll cycle), and reading it directly here would
+                // force this whole Form to re-render on that same cadence —
+                // which was disrupting in-progress typing in the fields
+                // above once connected, since a macOS Form/List reflow can
+                // reset an actively-focused TextField's edit state. Isolating
+                // it in its own view means only *that* view's body re-runs
+                // each tick, not this one.
+                ShowRemainingView()
             }
 
             // MARK: Show Times
@@ -98,15 +119,25 @@ struct SettingsView: View {
                     Spacer()
                     HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute)
                 }
-                HStack {
-                    Text("Show ends")
-                    Spacer()
-                    HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute)
-                }
-                if settings.showEndDate.timeIntervalSince(settings.showtimeDate) < 0 ||
-                    (settings.showEndHour < settings.showtimeHour ||
-                     (settings.showEndHour == settings.showtimeHour && settings.showEndMinute <= settings.showtimeMinute)) {
-                    Text("Show end treated as next day (post-midnight)")
+                Toggle("Show end time", isOn: $settings.showEndEnabled)
+                if settings.showEndEnabled {
+                    HStack {
+                        Text("Show ends")
+                        Spacer()
+                        HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute)
+                    }
+                    if settings.showEndDate.timeIntervalSince(settings.showtimeDate) < 0 ||
+                        (settings.showEndHour < settings.showtimeHour ||
+                         (settings.showEndHour == settings.showtimeHour && settings.showEndMinute <= settings.showtimeMinute)) {
+                        Text("Show end treated as next day (post-midnight)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Counts down to the end time, then counts up as overtime.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("The clock runs continuously and never switches to a countdown.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -129,6 +160,12 @@ struct SettingsView: View {
             didAutoConnect = true
             qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
             installClickToResignMonitor()
+        }
+        .onChange(of: qlab.isConnected) { _, connected in
+            guard connected else { return }
+            connectedHost = settings.qlabHost
+            connectedPort = settings.qlabPort
+            connectedPasscode = settings.qlabPasscode
         }
         .onDisappear {
             if let clickMonitor {
@@ -154,6 +191,52 @@ struct SettingsView: View {
             focusedField = nil
             return event
         }
+    }
+
+    private var isConnectedWithCurrentSettings: Bool {
+        qlab.isConnected
+            && connectedHost == settings.qlabHost
+            && connectedPort == settings.qlabPort
+            && connectedPasscode == settings.qlabPasscode
+    }
+}
+
+// Operator-only visibility into whether the show is tracking to run long —
+// not shown on the clock itself, just here. This is the current cue's
+// remaining time plus every armed, playable (Audio/Video/Mic) cue still
+// ahead of it in the list — the whole rest of the show, not just what's
+// playing right now, so projecting it against the show end time is a
+// reasonable (if imperfect — cues firing concurrently each count in full, so
+// heavily overlapping shows will over-estimate a bit) overtime warning.
+private struct ShowRemainingView: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var qlab: QLabManager
+
+    var body: some View {
+        if let remaining = qlab.totalRemainingSeconds {
+            let runsLong = settings.showEndEnabled
+                && Date().addingTimeInterval(remaining) > settings.showEndDate
+            HStack(spacing: 6) {
+                Text("Show remaining:")
+                    .foregroundStyle(.secondary)
+                Text(Self.formatDuration(remaining))
+                    .monospacedDigit()
+                    .foregroundStyle(runsLong ? .red : .primary)
+                if runsLong {
+                    Text("(overtime)")
+                        .foregroundStyle(.red)
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private static func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
     }
 }
 

@@ -7,6 +7,14 @@ class QLabManager: ObservableObject {
     @Published var nextCueName: String? = nil
     @Published var isConnected: Bool = false
     @Published var statusMessage: String = "Not connected"
+    // Whether QLab currently has any cue running or paused — used to decide
+    // when overtime is actually "over" rather than just a fixed timeout.
+    @Published var hasActiveCues: Bool = false
+    // Summed remaining playback time (seconds) of the current cue plus every
+    // armed, playable (Audio/Video/Mic) cue still ahead of it in the cue
+    // list — lets the operator see in Settings whether the show is tracking
+    // to run long, independent of anything shown on the clock itself.
+    @Published var totalRemainingSeconds: Double? = nil
 
     private(set) var host: String = "127.0.0.1"
     private(set) var port: UInt16 = 53000
@@ -19,6 +27,39 @@ class QLabManager: ObservableObject {
     private var workspaceID: String?
     private var workspaceName: String?
     private var passcode: String = ""
+    // Per-cue tracking, all keyed by uniqueID. Populated from the receive
+    // thread (dispatchReply's call stack); reset from the main thread by
+    // stop()/markDisconnected(). No explicit synchronization — same
+    // pragmatic tolerance as elsewhere in this class: a stale read during
+    // the brief reset window just means a momentarily-wrong cache entry, not
+    // a crash, and these values only ever move from real state to zeroed.
+    private var activeCueElapsed: [String: Double] = [:]  // currently-playing cues only
+    private var cueDuration: [String: Double] = [:]        // permanent once known; doesn't change
+    private var cueType: [String: String] = [:]            // permanent once known
+    private var cueArmed: [String: Bool] = [:]             // refreshed each poll; can change live
+    private var cueOrder: [String] = []                    // flattened leaf IDs, show order
+    private var cueIndexForID: [String: Int] = [:]         // leaf id -> index in cueOrder; Group ids map to their first descendant leaf's index
+    private var selectedCueID: String?
+    // UDP has no disconnect signal — quitting QLab looks identical to a
+    // silent network hiccup, so the only way to notice is a watchdog: if
+    // nothing at all has arrived in a while, assume it's gone.
+    private var lastReplyAt: Date?
+    private static let disconnectTimeout: TimeInterval = 5
+    // Coalesces recomputation to once per poll tick regardless of how many
+    // cue-level replies arrive in between — see the note at
+    // remainingNeedsRecompute's use site for what happens without this.
+    private var remainingNeedsRecompute = false
+    private var pollTickCount = 0
+    // cueLists/uniqueIDs + a fresh /armed query for every cue used to run
+    // every single 1-second tick. For a real show's cue count (386 in
+    // testing) that's 386+ UDP sends and a similar flood of replies *every
+    // second*, each one triggering a full recompute — measured at ~40% CPU
+    // and ~500KB/s resident memory growth just sitting idle. The cue list's
+    // structure and armed state don't need per-second freshness (cues aren't
+    // added/removed live, and an operator arming/disarming something is a
+    // rare, deliberate act) — every 10s is still prompt for a human-facing
+    // "might run over" warning, at a tenth of the traffic.
+    private static let structureRefreshEveryNTicks = 10
 
     // MARK: - Lifecycle
 
@@ -57,8 +98,17 @@ class QLabManager: ObservableObject {
         receiveThread = Thread { [weak self] in self?.receiveLoop() }
         receiveThread?.start()
 
-        sendOSC("/workspaces")
         setStatus("Connecting...")
+        sendOSC("/workspaces")
+        // Not just that one-shot send above: a single UDP packet has no
+        // retry if it's lost (e.g. QLab's OSC listener isn't fully up yet at
+        // the exact moment the app launches), and nothing else was ever
+        // going to resend it — this was the connect-on-launch bug where it
+        // sat stuck on "Connecting..." until a manual Connect click sent a
+        // fresh one. startPolling() already knows to keep retrying
+        // /workspaces for as long as there's no workspace, so start it now
+        // too as the retry safety net.
+        startPolling()
     }
 
     func stop() {
@@ -75,9 +125,19 @@ class QLabManager: ObservableObject {
             Darwin.close(socketFd)
             socketFd = -1
         }
+        activeCueElapsed = [:]
+        cueDuration = [:]
+        cueType = [:]
+        cueArmed = [:]
+        cueOrder = []
+        cueIndexForID = [:]
+        selectedCueID = nil
+        lastReplyAt = nil
         DispatchQueue.main.async {
             self.isConnected = false
             self.nextCueName = nil
+            self.hasActiveCues = false
+            self.totalRemainingSeconds = nil
             self.statusMessage = "Not connected"
         }
     }
@@ -88,9 +148,55 @@ class QLabManager: ObservableObject {
         DispatchQueue.main.async {
             self.pollTimer?.invalidate()
             self.pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                guard let self, let wid = self.workspaceID else { return }
-                self.sendOSC("/workspace/\(wid)/selectedCues")
+                guard let self else { return }
+
+                if self.isConnected, let last = self.lastReplyAt,
+                   Date().timeIntervalSince(last) > Self.disconnectTimeout {
+                    self.markDisconnected()
+                }
+
+                if let wid = self.workspaceID {
+                    self.sendOSC("/workspace/\(wid)/selectedCues")
+                    self.sendOSC("/workspace/\(wid)/runningOrPausedCues")
+                    self.pollTickCount += 1
+                    if self.pollTickCount % Self.structureRefreshEveryNTicks == 1 {
+                        self.sendOSC("/workspace/\(wid)/cueLists/uniqueIDs")
+                    }
+                } else {
+                    // No workspace (never found one, or just lost the
+                    // connection above) — keep retrying discovery so a
+                    // relaunched QLab gets picked back up automatically.
+                    self.sendOSC("/workspaces")
+                }
+
+                // Coalesced here, not from each cue-level reply handler: with
+                // hundreds of cues in flight at once, recomputing (and
+                // dispatching to main) on every single one was the flood
+                // above. One recompute per tick is all a human-facing number
+                // needs.
+                if self.remainingNeedsRecompute {
+                    self.remainingNeedsRecompute = false
+                    self.recomputeTotalRemaining()
+                }
             }
+        }
+    }
+
+    private func markDisconnected() {
+        workspaceID = nil
+        cueOrder = []
+        cueIndexForID = [:]
+        activeCueElapsed = [:]
+        cueType = [:]
+        cueDuration = [:]
+        cueArmed = [:]
+        selectedCueID = nil
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.nextCueName = nil
+            self.hasActiveCues = false
+            self.totalRemainingSeconds = nil
+            self.statusMessage = "Connection lost"
         }
     }
 
@@ -126,6 +232,7 @@ class QLabManager: ObservableObject {
 
     private func handleIncoming(_ data: Data) {
         guard let (address, args) = parseOSCMessage(data) else { return }
+        lastReplyAt = Date()
         // QLab replies land on "/reply" + the original address, e.g. "/reply/workspaces",
         // with a single JSON string argument (not "/reply" with the path as an arg).
         guard address.hasPrefix("/reply/"), let json = args.first else { return }
@@ -163,21 +270,200 @@ class QLabManager: ObservableObject {
             }
             setStatus("Connected: \(workspaceName ?? workspaceID ?? "")")
             DispatchQueue.main.async { self.isConnected = true }
-            startPolling()
+            // Polling is already running continuously since start() — it
+            // began retrying /workspaces before we even had a workspace, and
+            // seamlessly switches to full polling now that we have one.
 
         } else if query.hasSuffix("/selectedCues") {
             guard ok else { return }
             let cues = obj["data"] as? [[String: Any]]
+            selectedCueID = cues?.first?["uniqueID"] as? String
             // "listName" is the label QLab actually shows in its cue list (number + name);
             // "name" is just the custom name and is often an empty string, which would
             // otherwise win here and render as a blank "Next: " with nothing after it.
             let name = cues?.first.flatMap { c -> String? in
+                // A disarmed cue won't actually fire on Go, so showing it as
+                // "Next" is misleading — QLab still reports it as selected
+                // even while disarmed.
+                guard isCueArmed(c) else { return nil }
                 if let listName = c["listName"] as? String, !listName.isEmpty { return listName }
                 if let n = c["name"] as? String, !n.isEmpty { return n }
                 return c["number"] as? String
             }
             DispatchQueue.main.async { self.nextCueName = name }
+            remainingNeedsRecompute = true
+
+        } else if query.hasSuffix("/runningOrPausedCues") {
+            guard ok else { return }
+            let cues = obj["data"] as? [[String: Any]] ?? []
+            DispatchQueue.main.async { self.hasActiveCues = !cues.isEmpty }
+
+            // runningOrPausedCues nests Group cues around their children;
+            // only leaves (no "cues" of their own) are actual playable audio/
+            // video cues with a real elapsed/duration to query.
+            let leafIDs = Self.flattenRunningLeafCueIDs(cues)
+            activeCueElapsed = activeCueElapsed.filter { leafIDs.contains($0.key) }
+            for id in leafIDs {
+                sendOSC("/cue_id/\(id)/actionElapsed")
+                sendOSC("/cue_id/\(id)/duration")
+            }
+            remainingNeedsRecompute = true
+
+        } else if query.hasSuffix("/cueLists/uniqueIDs") {
+            guard ok, let list = obj["data"] as? [[String: Any]] else { return }
+            let (order, indexForID) = Self.buildCueOrder(list)
+            cueOrder = order
+            cueIndexForID = indexForID
+            // Cues before the current position can never contribute to
+            // recomputeTotalRemaining's sum (it only walks from startIndex
+            // onward), so there's no reason to fetch or re-check their
+            // static info or armed state at all — for a show partway
+            // through, that's a real cut to an already-reduced burst, not
+            // just the once-per-cue caching this already had.
+            if !order.isEmpty {
+                let startIndex = currentStartIndex(in: order, indexForID: indexForID)
+                for id in order[startIndex...] {
+                    if cueType[id] == nil { sendOSC("/cue_id/\(id)/type") }
+                    if cueDuration[id] == nil { sendOSC("/cue_id/\(id)/duration") }
+                    sendOSC("/cue_id/\(id)/armed")
+                }
+            }
+            remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/actionElapsed") {
+            guard ok, let elapsed = obj["data"] as? Double, let id = Self.cueID(fromQuery: query) else { return }
+            activeCueElapsed[id] = elapsed
+            remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/duration") {
+            guard ok, let duration = obj["data"] as? Double, let id = Self.cueID(fromQuery: query) else { return }
+            cueDuration[id] = duration
+            remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/type") {
+            guard ok, let type = obj["data"] as? String, let id = Self.cueID(fromQuery: query) else { return }
+            cueType[id] = type
+            remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/armed") {
+            guard ok, let id = Self.cueID(fromQuery: query) else { return }
+            if let b = obj["data"] as? Bool { cueArmed[id] = b }
+            else if let n = obj["data"] as? Int { cueArmed[id] = n != 0 }
+            remainingNeedsRecompute = true
         }
+    }
+
+    private static let playableCueTypes: Set<String> = ["Audio", "Video", "Mic"]
+
+    // Not just selectedCueID's index: QLab typically advances the playhead
+    // to the *next* cue immediately on Go, before the cue that just fired has
+    // finished playing — so the selected cue can already be one step ahead of
+    // what's still actually audible. Starting only from there would skip the
+    // currently-playing cue's own shrinking remaining time entirely, which is
+    // why the total wasn't ticking down while something was running. Back up
+    // to the earliest of the selected position or any cue actually known to
+    // be playing. Shared between recomputeTotalRemaining and the
+    // cueLists/uniqueIDs handler, which uses it to skip fetching info for
+    // cues that have already played and can never contribute to the sum.
+    private func currentStartIndex(in order: [String], indexForID: [String: Int]) -> Int {
+        guard !order.isEmpty else { return 0 }
+        let selectedIndex = selectedCueID.flatMap { indexForID[$0] }
+        let activeIndices = activeCueElapsed.keys.compactMap { indexForID[$0] }
+        let idx = ([selectedIndex].compactMap { $0 } + activeIndices).min() ?? 0
+        return min(max(idx, 0), order.count - 1)
+    }
+
+    // Sums the current cue's remaining time plus every armed, playable cue
+    // still ahead of it in the list — not just whatever's playing right now.
+    // "Remaining" is the operator's whole-rest-of-show estimate, so it needs
+    // cueOrder (the full list) walked from the current position onward, not
+    // just activeCueElapsed (which only knows about cues already playing).
+    private func recomputeTotalRemaining() {
+        guard !cueOrder.isEmpty else {
+            DispatchQueue.main.async { self.totalRemainingSeconds = nil }
+            return
+        }
+        let startIndex = currentStartIndex(in: cueOrder, indexForID: cueIndexForID)
+
+        var total = 0.0
+        for id in cueOrder[startIndex...] {
+            guard let type = cueType[id], Self.playableCueTypes.contains(type) else { continue }
+            // Default true if we haven't heard back yet, to avoid
+            // systematically undercounting while armed-state replies are
+            // still in flight — better to briefly overestimate than hide
+            // real remaining time because of network lag.
+            guard cueArmed[id] ?? true else { continue }
+            guard let duration = cueDuration[id] else { continue }
+            let elapsed = activeCueElapsed[id] ?? 0
+            total += max(0, duration - elapsed)
+        }
+        DispatchQueue.main.async { self.totalRemainingSeconds = total }
+    }
+
+    // For runningOrPausedCues specifically: "cues".isEmpty isn't a reliable
+    // leaf signal there, because a running Group cue can appear with an
+    // empty "cues" array of its own (its active children aren't nested under
+    // it in that particular reply), and querying elapsed/duration on a Group
+    // just returns 0. "type" is the reliable signal for that endpoint —
+    // recurse through Groups, treat everything else as a leaf to query.
+    private static func flattenRunningLeafCueIDs(_ cues: [[String: Any]]) -> Set<String> {
+        var result = Set<String>()
+        for cue in cues {
+            let children = cue["cues"] as? [[String: Any]] ?? []
+            if (cue["type"] as? String) == "Group" {
+                result.formUnion(flattenRunningLeafCueIDs(children))
+            } else if let id = cue["uniqueID"] as? String {
+                result.insert(id)
+            }
+        }
+        return result
+    }
+
+    // For cueLists/uniqueIDs specifically (unlike runningOrPausedCues above):
+    // this endpoint reliably reports the true full structure, so "cues" is
+    // empty if and only if a cue is an actual leaf — no need for the "type"
+    // workaround needed above. Builds both the flattened show-order leaf list
+    // and a lookup from any cue ID (leaf or Group) to its position in that
+    // order — a Group's position is its first descendant leaf's, since
+    // selecting a Group in QLab means everything in it is about to play.
+    private static func buildCueOrder(_ cues: [[String: Any]]) -> (order: [String], indexForID: [String: Int]) {
+        var order: [String] = []
+        var indexForID: [String: Int] = [:]
+
+        func visit(_ list: [[String: Any]]) {
+            for cue in list {
+                guard let id = cue["uniqueID"] as? String else { continue }
+                let children = cue["cues"] as? [[String: Any]] ?? []
+                if children.isEmpty {
+                    indexForID[id] = order.count
+                    order.append(id)
+                } else {
+                    let startIdx = order.count
+                    visit(children)
+                    indexForID[id] = startIdx
+                }
+            }
+        }
+        visit(cues)
+        return (order, indexForID)
+    }
+
+    // query is e.g. "/cue_id/{id}/actionElapsed" after the "/reply" prefix
+    // has already been stripped in handleIncoming.
+    private static func cueID(fromQuery query: String) -> String? {
+        let parts = query.split(separator: "/")
+        guard parts.count >= 2, parts[0] == "cue_id" else { return nil }
+        return String(parts[1])
+    }
+
+    // QLab encodes "armed" inconsistently — sometimes a JSON bool, sometimes
+    // an int (0/1) — depending on cue type/version, so both need checking.
+    // Missing/unrecognized defaults to true so we never hide a cue we can't
+    // actually confirm is disarmed.
+    private func isCueArmed(_ cue: [String: Any]) -> Bool {
+        if let b = cue["armed"] as? Bool { return b }
+        if let n = cue["armed"] as? Int { return n != 0 }
+        return true
     }
 
     // MARK: - OSC helpers
