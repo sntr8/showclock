@@ -1,0 +1,92 @@
+import SwiftUI
+import AppKit
+
+// Mini diagram of the connected displays, arranged to match their real
+// on-screen positions. Tap a display to select it; the selected one shows a
+// live miniature of the actual clock as it will render there.
+struct ScreenArrangementView: View {
+    @Binding var selectedDisplayID: CGDirectDisplayID
+    let theme: Theme
+
+    private var screens: [NSScreen] { NSScreen.screens }
+
+    private var unionFrame: CGRect {
+        screens.dropFirst().reduce(screens.first?.frame ?? .zero) { $0.union($1.frame) }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let union = unionFrame
+            let scale = (union.width > 0 && union.height > 0)
+                ? min(geo.size.width / union.width, geo.size.height / union.height) * 0.92
+                : 1
+            let offsetX = (geo.size.width - union.width * scale) / 2
+            let offsetY = (geo.size.height - union.height * scale) / 2
+
+            ZStack {
+                ForEach(screens, id: \.displayID) { screen in
+                    let isSelected = screen.displayID == selectedDisplayID
+                    let width = max(screen.frame.width * scale, 1)
+                    let height = max(screen.frame.height * scale, 1)
+                    let midX = (screen.frame.minX - union.minX) * scale + offsetX + width / 2
+                    // Flip Y: AppKit screen coordinates are bottom-left origin.
+                    let midY = (union.maxY - screen.frame.maxY) * scale + offsetY + height / 2
+
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(theme.backgroundColor)
+
+                        if isSelected {
+                            MiniClockPreview(theme: theme)
+                                .padding(6)
+                        }
+
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(
+                                isSelected ? Color.accentColor : Color.secondary.opacity(0.4),
+                                lineWidth: isSelected ? 2 : 1
+                            )
+
+                        Text(screen.localizedName)
+                            .font(.system(size: 9))
+                            .foregroundStyle(isSelected ? theme.accentColor : .secondary)
+                            .padding(4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    }
+                    .frame(width: width, height: height)
+                    .position(x: midX, y: midY)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedDisplayID = screen.displayID }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+}
+
+private struct MiniClockPreview: View {
+    let theme: Theme
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var timeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d:%02d",
+                      c.component(.hour, from: now),
+                      c.component(.minute, from: now),
+                      c.component(.second, from: now))
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            Text(timeString)
+                .font(Font.system(size: geo.size.height * 0.55, weight: .bold).monospacedDigit())
+                .fontWidth(.compressed)
+                .minimumScaleFactor(0.01)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(theme.primaryColor)
+        }
+        .onReceive(timer) { now = $0 }
+    }
+}

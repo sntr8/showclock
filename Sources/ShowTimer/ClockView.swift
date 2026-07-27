@@ -6,9 +6,11 @@ struct ClockView: View {
     let now: Date
 
     private var timeString: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f.string(from: now)
+        let c = Calendar.current
+        return String(format: "%02d:%02d:%02d",
+                      c.component(.hour, from: now),
+                      c.component(.minute, from: now),
+                      c.component(.second, from: now))
     }
 
     private var showtimeString: String {
@@ -19,16 +21,18 @@ struct ClockView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let mainFontSize = min(geo.size.width / 5.2, geo.size.height * 0.42)
-            let subFontSize = mainFontSize * 0.13
+            let subFontSize = geo.size.height * 0.055
 
-            VStack(spacing: mainFontSize * 0.08) {
+            VStack(spacing: geo.size.height * 0.02) {
                 Spacer()
 
                 Text(timeString)
-                    .font(.system(size: mainFontSize, weight: .thin, design: .monospaced))
-                    .foregroundStyle(settings.selectedTheme.primaryColor)
+                    .font(Font.system(size: geo.size.height * 0.82, weight: .bold).monospacedDigit())
+                    .fontWidth(.compressed)
+                    .minimumScaleFactor(0.01)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(settings.selectedTheme.primaryColor)
 
                 HStack(spacing: subFontSize * 1.5) {
                     Text("Show at \(showtimeString)")
@@ -42,6 +46,7 @@ struct ClockView: View {
                     }
                 }
                 .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
+                .lineLimit(1)
 
                 Spacer()
             }

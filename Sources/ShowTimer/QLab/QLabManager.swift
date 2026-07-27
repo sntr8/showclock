@@ -17,13 +17,16 @@ class QLabManager: ObservableObject {
     private var running = false
     private var pollTimer: Timer?
     private var workspaceID: String?
+    private var workspaceName: String?
+    private var passcode: String = ""
 
     // MARK: - Lifecycle
 
-    func start(host: String, port: Int) {
+    func start(host: String, port: Int, passcode: String = "") {
         stop()
         self.host = host
         self.port = UInt16(port)
+        self.passcode = passcode
 
         socketFd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard socketFd >= 0 else {
@@ -62,13 +65,18 @@ class QLabManager: ObservableObject {
         running = false
         pollTimer?.invalidate()
         pollTimer = nil
+        // Not @Published, so no need to hop to main — and it must not be
+        // deferred: start() calls stop() then immediately reconnects, and a
+        // queued async reset here would otherwise land *after* the new
+        // connection sets a fresh workspaceID, wiping it back to nil right
+        // before the poll timer's first tick ever fires.
+        workspaceID = nil
         if socketFd >= 0 {
             Darwin.close(socketFd)
             socketFd = -1
         }
         DispatchQueue.main.async {
             self.isConnected = false
-            self.workspaceID = nil
             self.nextCueName = nil
             self.statusMessage = "Not connected"
         }
@@ -88,9 +96,9 @@ class QLabManager: ObservableObject {
 
     // MARK: - UDP send
 
-    private func sendOSC(_ address: String) {
+    private func sendOSC(_ address: String, stringArg: String? = nil) {
         guard socketFd >= 0 else { return }
-        let msg = buildOSCMessage(address: address)
+        let msg = buildOSCMessage(address: address, stringArg: stringArg)
         var dest = sockaddr_in()
         dest.sin_family = sa_family_t(AF_INET)
         dest.sin_port = port.bigEndian
@@ -118,38 +126,55 @@ class QLabManager: ObservableObject {
 
     private func handleIncoming(_ data: Data) {
         guard let (address, args) = parseOSCMessage(data) else { return }
-        guard address == "/reply", args.count >= 2 else { return }
-        let query = args[0]
-        let json = args[1]
+        // QLab replies land on "/reply" + the original address, e.g. "/reply/workspaces",
+        // with a single JSON string argument (not "/reply" with the path as an arg).
+        guard address.hasPrefix("/reply/"), let json = args.first else { return }
+        let query = String(address.dropFirst("/reply".count))
         dispatchReply(query: query, json: json)
     }
 
     private func dispatchReply(query: String, json: String) {
         guard let raw = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-              (obj["status"] as? String) == "ok" else { return }
+              let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else { return }
+        let ok = (obj["status"] as? String) == "ok"
 
         if query == "/workspaces" {
-            guard let list = obj["data"] as? [[String: Any]],
+            guard ok, let list = obj["data"] as? [[String: Any]],
                   let first = list.first,
                   let wid = first["uniqueID"] as? String else {
                 setStatus("No workspaces found")
                 return
             }
-            workspaceID = wid
-            let wsName = (first["displayName"] as? String) ?? wid
-            sendOSC("/workspace/\(wid)/connect")
-            setStatus("Connected: \(wsName)")
+            // dispatchReply runs on the background receive thread; hop to
+            // main before touching workspaceID since it's also read/written
+            // from the main-thread poll timer and stop().
+            DispatchQueue.main.async { self.workspaceID = wid }
+            workspaceName = (first["displayName"] as? String) ?? wid
+            // Don't report connected yet: QLab requires a passcode (if the
+            // workspace has one set) before it accepts anything else, and a
+            // failed /connect here would otherwise leave us silently polling
+            // into the void while still showing a green "connected" dot.
+            sendOSC("/workspace/\(wid)/connect", stringArg: passcode.isEmpty ? nil : passcode)
+
+        } else if query.hasSuffix("/connect") {
+            guard ok else {
+                setStatus("QLab rejected connection — check passcode")
+                return
+            }
+            setStatus("Connected: \(workspaceName ?? workspaceID ?? "")")
             DispatchQueue.main.async { self.isConnected = true }
             startPolling()
 
-        } else if query.hasSuffix("/connect") {
-            // acknowledged — polling already started above
-
         } else if query.hasSuffix("/selectedCues") {
+            guard ok else { return }
             let cues = obj["data"] as? [[String: Any]]
-            let name = cues?.first.flatMap { c in
-                (c["displayName"] as? String) ?? (c["name"] as? String) ?? (c["number"] as? String)
+            // "listName" is the label QLab actually shows in its cue list (number + name);
+            // "name" is just the custom name and is often an empty string, which would
+            // otherwise win here and render as a blank "Next: " with nothing after it.
+            let name = cues?.first.flatMap { c -> String? in
+                if let listName = c["listName"] as? String, !listName.isEmpty { return listName }
+                if let n = c["name"] as? String, !n.isEmpty { return n }
+                return c["number"] as? String
             }
             DispatchQueue.main.async { self.nextCueName = name }
         }
@@ -157,10 +182,15 @@ class QLabManager: ObservableObject {
 
     // MARK: - OSC helpers
 
-    private func buildOSCMessage(address: String) -> Data {
+    private func buildOSCMessage(address: String, stringArg: String? = nil) -> Data {
         var data = Data()
         data.append(oscPaddedString(address))
-        data.append(oscPaddedString(","))
+        if let stringArg {
+            data.append(oscPaddedString(",s"))
+            data.append(oscPaddedString(stringArg))
+        } else {
+            data.append(oscPaddedString(","))
+        }
         return data
     }
 

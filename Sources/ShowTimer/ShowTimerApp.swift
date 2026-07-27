@@ -4,17 +4,19 @@ import SwiftUI
 struct ShowTimerApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var qlab = QLabManager()
+    @StateObject private var display = DisplayWindowController()
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // The first WindowGroup is the one macOS auto-opens at launch, so this
+        // (not the theme editor below) is what appears on launch.
+        WindowGroup(id: "settings") {
+            SettingsView()
                 .environmentObject(settings)
                 .environmentObject(qlab)
-                .onAppear {
-                    qlab.start(host: settings.qlabHost, port: settings.qlabPort)
-                }
+                .environmentObject(display)
         }
-        .windowStyle(.automatic)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 480, height: 760)
         .commands {
             CommandGroup(after: .appInfo) {
                 Divider()
@@ -28,10 +30,11 @@ struct ShowTimerApp: App {
             }
         }
 
-        Settings {
-            SettingsView()
+        WindowGroup(id: "theme-editor") {
+            ThemeEditorView()
                 .environmentObject(settings)
-                .environmentObject(qlab)
         }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 500, height: 380)
     }
 }
