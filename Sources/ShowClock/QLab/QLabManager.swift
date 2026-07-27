@@ -232,12 +232,27 @@ class QLabManager: ObservableObject {
 
     private func handleIncoming(_ data: Data) {
         guard let (address, args) = parseOSCMessage(data) else { return }
-        lastReplyAt = Date()
         // QLab replies land on "/reply" + the original address, e.g. "/reply/workspaces",
         // with a single JSON string argument (not "/reply" with the path as an arg).
         guard address.hasPrefix("/reply/"), let json = args.first else { return }
         let query = String(address.dropFirst("/reply".count))
-        dispatchReply(query: query, json: json)
+        // dispatchReply (and everything it touches: cueOrder, cueDuration,
+        // cueType, cueArmed, activeCueElapsed, cueIndexForID, selectedCueID,
+        // lastReplyAt) must run on the same thread that reads them — the
+        // main-thread poll timer's recomputeTotalRemaining()/
+        // currentStartIndex(). This used to run inline on receiveLoop's
+        // background thread instead, racing unsynchronized against those
+        // main-thread reads on plain Swift Array/Dictionary storage — not a
+        // narrow bug, genuine heap corruption (concurrent mutation of Swift
+        // collections without synchronization is undefined behavior), which
+        // surfaced as crashes in unrelated-looking places (different
+        // objc_release call sites each time, whenever the corrupted memory
+        // later happened to get deallocated).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lastReplyAt = Date()
+            self.dispatchReply(query: query, json: json)
+        }
     }
 
     private func dispatchReply(query: String, json: String) {

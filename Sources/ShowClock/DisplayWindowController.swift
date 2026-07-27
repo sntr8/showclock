@@ -103,6 +103,17 @@ final class DisplayWindowController: ObservableObject {
         // every display switch, which closes and rebuilds internally) leaked
         // the previous window and its whole view tree — real growth over a
         // show with several open/close/display-switch cycles.
+        //
+        // contentView = nil first, before close(): that environment chain is
+        // a genuine reference cycle (this controller -> window -> hostingView
+        // -> environment -> back to this controller), and letting close()'s
+        // own internal teardown be what releases that exotic hosted content
+        // view, as a black box, is what was crashing (EXC_BAD_ACCESS in
+        // objc_release during a later autorelease pool drain — a corrupted
+        // object, not a straightforward leak). Detaching and releasing the
+        // content view ourselves first, via a plain ARC assignment, means
+        // close() only ever has an empty, ordinary window left to tear down.
+        window?.contentView = nil
         window?.close()
         window = nil
         isShowing = false
