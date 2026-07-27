@@ -89,6 +89,26 @@ struct ShowClockApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var display: DisplayWindowController?
 
+    // A second launch (double-click, Spotlight, "open -a" from a script, etc.)
+    // would otherwise run alongside the first, both trying to bind QLab's OSC
+    // reply port (53001) — the loser saw a bare "Failed to bind port 53001" in
+    // Settings with no hint why. Hand off to the already-running instance and
+    // quit instead, before anything (including that bind) gets a chance to run.
+    //
+    // Matched by executable path, not bundleIdentifier: an unbundled dev
+    // build (swift run / .build/debug/ShowClock) has no Info.plist, so
+    // Bundle.main.bundleIdentifier is nil there and would never match.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let executableURL = Bundle.main.executableURL else { return }
+        let others = NSWorkspace.shared.runningApplications.filter {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+                && $0.executableURL == executableURL
+        }
+        guard let existing = others.first else { return }
+        existing.activate()
+        NSApp.terminate(nil)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let display, display.isShowing else { return .terminateNow }
 
