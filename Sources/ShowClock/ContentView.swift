@@ -44,13 +44,18 @@ struct ContentView: View {
                 // White backing regardless of theme: a black QR code on the
                 // Night theme's black background would be unreadable otherwise.
                 if settings.showQRCode {
-                    QRCodeView(content: "https://github.com/sntr8/showclock/releases")
-                        .frame(width: qrSize, height: qrSize)
-                        .padding(qrSize * 0.1)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .padding(16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    VStack(spacing: qrSize * 0.08) {
+                        QRCodeView(content: "https://github.com/sntr8/showclock/releases")
+                            .frame(width: qrSize, height: qrSize)
+                        Text("Download ShowClock")
+                            .font(.system(size: qrSize * 0.14, weight: .medium))
+                            .foregroundStyle(.black)
+                    }
+                    .padding(qrSize * 0.1)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
                 // Always-available, mouse-only way to close the display: keyboard
