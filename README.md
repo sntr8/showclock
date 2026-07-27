@@ -8,6 +8,17 @@
 
 ShowClock puts a full-screen clock on an external display for stage managers, operators, and crew to see at a glance: a plain clock before the show starts, then a countdown to show end, then overtime if things run long — all synced with what QLab is actually doing, not just a fixed timer.
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/pre-show.png" alt="Pre-show clock"><br><sub>Pre-show</sub></td>
+    <td><img src="docs/screenshots/countdown.png" alt="Countdown with next cue"><br><sub>Countdown, with next cue</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings.png" alt="Settings window"><br><sub>Settings</sub></td>
+    <td><img src="docs/screenshots/theme-editor.png" alt="Theme editor"><br><sub>Theme editor</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - **Full-screen clock display**, pinned to whichever connected display you choose, with a live preview in Settings so you can see exactly what it'll show before opening it.
@@ -52,7 +63,7 @@ See [`docs/release-process.md`](docs/release-process.md) for how tagged releases
 
 ## Support
 
-ShowClock is free. If it's useful to you and you'd like to support future updates, you can [buy me a coffee on Ko-fi](https://ko-fi.com/sntr8).
+ShowClock is free. If it's useful to you and you'd like to support future updates, you can [buy me a Coca-Cola on Ko-fi](https://ko-fi.com/sntr8).
 
 ## License
 
