@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a standard "drag ShowTimer.app to Applications" DMG from an
+# Builds a standard "drag ShowClock.app to Applications" DMG from an
 # already-built .app bundle. Requires `create-dmg` (brew install create-dmg).
 set -euo pipefail
 

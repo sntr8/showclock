@@ -2,7 +2,7 @@ name: Release
 
 # Triggered by pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`)
 # — not by merging to main. Builds and publishes a drag-to-Applications
-# ShowTimer.dmg to GitHub Releases with auto-generated notes from merged PRs
+# ShowClock.dmg to GitHub Releases with auto-generated notes from merged PRs
 # since the last tag.
 #
 # Unsigned, not notarized: that requires a paid Apple Developer Program
@@ -34,14 +34,14 @@ jobs:
         run: brew install create-dmg
 
       - name: Build DMG
-        run: ./Packaging/make-dmg.sh "dist/ShowTimer.app" "dist/ShowTimer.dmg"
+        run: ./Packaging/make-dmg.sh "dist/ShowClock.app" "dist/ShowClock.dmg"
 
       - name: Generate release notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'EOF'
-          > **Not notarized.** This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" on first launch. To open it: right-click (or Control-click) `ShowTimer.app` → **Open** → **Open** again in the confirmation dialog. You only need to do this once.
+          > **Not notarized.** This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" on first launch. To open it: right-click (or Control-click) `ShowClock.app` → **Open** → **Open** again in the confirmation dialog. You only need to do this once.
 
           EOF
           gh api "repos/${{ github.repository }}/releases/generate-notes" \
@@ -52,6 +52,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            "dist/ShowTimer.dmg" \
-            --title "ShowTimer ${{ github.ref_name }}" \
+            "dist/ShowClock.dmg" \
+            --title "ShowClock ${{ github.ref_name }}" \
             --notes-file notes.md

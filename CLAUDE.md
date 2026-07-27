@@ -1,4 +1,4 @@
-# ShowTimer
+# ShowClock
 
 macOS show clock app for live events. Displays a full-screen clock before showtime, then a countdown to show end. Pulls next-cue info from QLab via OSC.
 
@@ -15,7 +15,7 @@ No external dependencies. macOS 14+, Swift 5.9+.
 
 | File | Role |
 |------|------|
-| ShowTimerApp.swift | App entry. The Settings WindowGroup is declared first, so it's the one macOS auto-opens at launch; the theme-editor WindowGroup only opens via `openWindow(id:)` |
+| ShowClockApp.swift | App entry. The Settings WindowGroup is declared first, so it's the one macOS auto-opens at launch; the theme-editor WindowGroup only opens via `openWindow(id:)` |
 | DisplayWindowController.swift | Owns the borderless kiosk `NSWindow` that shows the clock full screen on the chosen `NSScreen`; opened/closed/moved from Settings, not a SwiftUI `WindowGroup` |
 | ContentView.swift | Root view rendered inside the kiosk window; picks plain clock vs. countdown/overtime via `AppSettings.isShowingPlainClock` (see Architecture notes) |
 | ClockView.swift | Full-screen plain clock (HH:MM:SS) — pre-show, no-end-time, and post-overtime states all render this. Shows "Show at HH:MM" only while pre-show, and cue info ("Next: X") only otherwise — the no-end-time mode has nowhere else to show cue info, since CountdownView never renders there |

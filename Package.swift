@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "ShowTimer",
+    name: "ShowClock",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "ShowTimer",
-            path: "Sources/ShowTimer"
+            name: "ShowClock",
+            path: "Sources/ShowClock"
         )
     ]
 )

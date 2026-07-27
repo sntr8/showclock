@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct ShowTimerApp: App {
+struct ShowClockApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var qlab = QLabManager()
     @StateObject private var display = DisplayWindowController()

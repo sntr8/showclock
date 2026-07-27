@@ -4,8 +4,8 @@
 
 1. Merge whatever you want released into `main`. `ci.yml` builds on every push/PR — this is just a build check, it never publishes anything.
 2. When you're ready to cut a release: `git tag v1.0.0 && git push origin v1.0.0` (semver, `v` prefix required — that's what `release.yml`'s trigger matches on).
-3. `release.yml` builds a release binary, bundles it into `ShowTimer.app`, builds a standard "drag to Applications" `ShowTimer.dmg` from it (via `create-dmg`), and publishes it to GitHub Releases with auto-generated notes (from merged PR titles since the last tag) plus a fixed disclaimer about Gatekeeper (see below).
-4. Recipients: download the DMG, double-click to mount it, drag ShowTimer into Applications. Since the build isn't signed or notarized, the **first** launch will be blocked by Gatekeeper ("Apple could not verify ShowTimer is free of malware") — right-click (or Control-click) `ShowTimer.app` → **Open** → **Open** again in the confirmation dialog. Only needed once per machine.
+3. `release.yml` builds a release binary, bundles it into `ShowClock.app`, builds a standard "drag to Applications" `ShowClock.dmg` from it (via `create-dmg`), and publishes it to GitHub Releases with auto-generated notes (from merged PR titles since the last tag) plus a fixed disclaimer about Gatekeeper (see below).
+4. Recipients: download the DMG, double-click to mount it, drag ShowClock into Applications. Since the build isn't signed or notarized, the **first** launch will be blocked by Gatekeeper ("Apple could not verify ShowClock is free of malware") — right-click (or Control-click) `ShowClock.app` → **Open** → **Open** again in the confirmation dialog. Only needed once per machine.
 
 Version numbers are taken from the tag (`v1.2.3` → app version `1.2.3`), not tracked anywhere else — there's no version number to bump in a file before tagging.
 
@@ -19,14 +19,14 @@ Code signing with a "Developer ID Application" certificate, and notarization, bo
 
 ```
 ./Packaging/build-app.sh 1.0.0-test
-open dist/ShowTimer.app
+open dist/ShowClock.app
 ```
 
 `Packaging/make-dmg.sh` builds the drag-to-Applications DMG (needs `brew install create-dmg`):
 
 ```
-./Packaging/make-dmg.sh dist/ShowTimer.app dist/ShowTimer.dmg
-open dist/ShowTimer.dmg
+./Packaging/make-dmg.sh dist/ShowClock.app dist/ShowClock.dmg
+open dist/ShowClock.dmg
 ```
 
 The background image (`Packaging/dmg-background.png`, with the arrow between the icon positions) is a static, committed asset — regenerate it by hand in something like Preview/Sketch/Figma if it ever needs to change, matching the `--icon`/`--app-drop-link` coordinates in `make-dmg.sh` (currently 130,130 and 370,130 in a 500×320 window). It has to be exactly 500×320 *pixels* (not the 1000×640 a Retina screenshot/export would produce) — create-dmg has no `@2x` convention for `--background`, so a 2x image renders at double size/wrong scale.
@@ -45,7 +45,7 @@ rm -rf AppIcon.iconset
 
 ## Notes
 
-- Switching from the raw `swift run` executable to a proper `.app` bundle changes `UserDefaults.standard`'s effective domain from the bare process name (`ShowTimer`) to the bundle identifier (`com.sntr8.ShowTimer`, set in `Packaging/Info.plist`). Existing dev/test settings under the old domain won't carry over — a fresh install of the bundled app just starts with defaults, which is expected.
+- Switching from the raw `swift run` executable to a proper `.app` bundle changes `UserDefaults.standard`'s effective domain from the bare process name (`ShowClock`) to the bundle identifier (`com.sntr8.ShowClock`, set in `Packaging/Info.plist`). Existing dev/test settings under the old domain won't carry over — a fresh install of the bundled app just starts with defaults, which is expected.
 - `release.yml` needs `contents: write` permission (already set) to publish releases via `gh release create`.
 - `make-dmg.sh`'s Finder-layout step (icon positions, arrangement, background) doesn't trust `create-dmg`'s own AppleScript pass to have stuck — it re-applies everything itself directly against the final-named volume. This isn't defensive-for-no-reason: `create-dmg` binds its background-picture reference to a temporary staging volume name that gets renamed during compression, silently dangling the reference and reverting the arrangement to Finder's generic default. If the DMG's layout or background is ever wrong again, this is the first thing to check.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a release binary and assembles it into a proper ShowTimer.app bundle
+# Builds a release binary and assembles it into a proper ShowClock.app bundle
 # in ./dist. Runs locally (for testing the bundling itself) and in CI (before
 # signing/notarizing, which needs a Developer ID cert this script doesn't
 # touch).
@@ -10,7 +10,7 @@ VERSION="${1:?Usage: build-app.sh <version, e.g. 1.0.0>}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-APP_NAME="ShowTimer"
+APP_NAME="ShowClock"
 DIST_DIR="$REPO_ROOT/dist"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 
