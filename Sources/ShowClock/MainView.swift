@@ -5,7 +5,7 @@ private enum SettingsField: Hashable {
     case host, port, passcode
 }
 
-struct SettingsView: View {
+struct MainView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var qlab: QLabManager
     @EnvironmentObject var display: DisplayWindowController
@@ -96,7 +96,7 @@ struct SettingsView: View {
                 HStack {
                     if !isConnectedWithCurrentSettings {
                         Button("Connect") {
-                            qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
+                            qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode, replyPort: UInt16(settings.qlabReplyPort))
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -168,7 +168,7 @@ struct SettingsView: View {
         .onAppear {
             guard !didAutoConnect else { return }
             didAutoConnect = true
-            qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
+            qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode, replyPort: UInt16(settings.qlabReplyPort))
             installClickToResignMonitor()
             // activate: false — Settings should stay the frontmost, focused
             // window at launch; the clock display should just quietly appear

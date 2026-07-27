@@ -11,12 +11,13 @@ struct ShowClockApp: App {
     var body: some Scene {
         // The first WindowGroup is the one macOS auto-opens at launch, so this
         // (not the theme editor below) is what appears on launch.
-        WindowGroup(id: "settings") {
-            SettingsView()
+        WindowGroup(id: "main") {
+            MainView()
                 .environmentObject(settings)
                 .environmentObject(qlab)
                 .environmentObject(display)
                 .onAppear { appDelegate.display = display }
+                .background(WindowAccessor { appDelegate.mainWindow = $0 })
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 480, height: 760)
@@ -25,7 +26,6 @@ struct ShowClockApp: App {
                 Button("Check for Updates...") {
                     UpdateChecker.check(interactive: true)
                 }
-                Toggle("Check for Updates Automatically", isOn: $settings.autoCheckForUpdates)
             }
             CommandGroup(after: .appInfo) {
                 Divider()
@@ -78,6 +78,15 @@ struct ShowClockApp: App {
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 500, height: 380)
+
+        // SwiftUI wires this to Cmd+, and the app menu's "Settings..." item
+        // automatically. Home for the rarely-touched knobs — as opposed to
+        // MainView, which holds what you'd actually adjust show to show.
+        Settings {
+            AdvancedSettingsView(appDelegate: appDelegate)
+                .environmentObject(settings)
+                .environmentObject(qlab)
+        }
     }
 }
 
@@ -88,6 +97,7 @@ struct ShowClockApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var display: DisplayWindowController?
+    weak var mainWindow: NSWindow?
 
     // A second launch (double-click, Spotlight, "open -a" from a script, etc.)
     // would otherwise run alongside the first, both trying to bind QLab's OSC

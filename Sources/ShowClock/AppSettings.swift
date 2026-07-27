@@ -6,6 +6,10 @@ import Combine
 class AppSettings: ObservableObject {
     @Published var qlabHost: String = "127.0.0.1" { didSet { saveIfLoaded() } }
     @Published var qlabPort: Int = 53000 { didSet { saveIfLoaded() } }
+    // Local UDP port QLab's OSC replies arrive on. Rarely needs changing —
+    // only if something else on the machine is already using 53001 — so it
+    // lives in the Cmd+, Settings scene rather than the main window.
+    @Published var qlabReplyPort: Int = 53001 { didSet { saveIfLoaded() } }
     @Published var qlabPasscode: String = "" { didSet { saveIfLoaded() } }
     @Published var showtimeHour: Int = 20 { didSet { saveIfLoaded() } }
     @Published var showtimeMinute: Int = 0 { didSet { saveIfLoaded() } }
@@ -132,6 +136,7 @@ class AppSettings: ObservableObject {
         let d = UserDefaults.standard
         d.set(qlabHost, forKey: "qlabHost")
         d.set(qlabPort, forKey: "qlabPort")
+        d.set(qlabReplyPort, forKey: "qlabReplyPort")
         d.set(qlabPasscode, forKey: "qlabPasscode")
         d.set(showtimeHour, forKey: "showtimeHour")
         d.set(showtimeMinute, forKey: "showtimeMinute")
@@ -152,6 +157,7 @@ class AppSettings: ObservableObject {
         let d = UserDefaults.standard
         if let h = d.string(forKey: "qlabHost") { qlabHost = h }
         let p = d.integer(forKey: "qlabPort"); if p > 0 { qlabPort = p }
+        let rp = d.integer(forKey: "qlabReplyPort"); if rp > 0 { qlabReplyPort = rp }
         if let pc = d.string(forKey: "qlabPasscode") { qlabPasscode = pc }
         let sh = d.integer(forKey: "showtimeHour"); if sh > 0 { showtimeHour = sh }
         showtimeMinute = d.integer(forKey: "showtimeMinute")

@@ -18,7 +18,7 @@ class QLabManager: ObservableObject {
 
     private(set) var host: String = "127.0.0.1"
     private(set) var port: UInt16 = 53000
-    private let listenPort: UInt16 = 53001
+    private var listenPort: UInt16 = 53001
 
     private var socketFd: Int32 = -1
     private var receiveThread: Thread?
@@ -63,11 +63,12 @@ class QLabManager: ObservableObject {
 
     // MARK: - Lifecycle
 
-    func start(host: String, port: Int, passcode: String = "") {
+    func start(host: String, port: Int, passcode: String = "", replyPort: UInt16 = 53001) {
         stop()
         self.host = host
         self.port = UInt16(port)
         self.passcode = passcode
+        self.listenPort = replyPort
 
         socketFd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard socketFd >= 0 else {
