@@ -60,6 +60,14 @@ final class DisplayWindowController: ObservableObject {
         window.collectionBehavior = [.stationary, .ignoresCycle]
         window.isOpaque = true
         window.hasShadow = false
+        // Without this, closing the window (see close() below) can trigger
+        // AppKit's default close-transform animation — which, for this
+        // particular combination of borderless/.statusBar-level/full-screen
+        // window, has been observed to crash during the animation's own
+        // dealloc (EXC_BAD_ACCESS inside _NSWindowTransformAnimation
+        // dealloc, nothing in our own code on the stack). Not worth
+        // animating a full-screen kiosk display closing anyway.
+        window.animationBehavior = .none
 
         if activate {
             NSApp.setActivationPolicy(.regular)
