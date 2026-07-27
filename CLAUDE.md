@@ -20,6 +20,7 @@ No external dependencies. macOS 14+, Swift 5.9+.
 | ContentView.swift | Root view rendered inside the kiosk window; picks plain clock vs. countdown/overtime via `AppSettings.isShowingPlainClock` (see Architecture notes) |
 | ClockView.swift | Full-screen plain clock (HH:MM:SS) — pre-show, no-end-time, and post-overtime states all render this. Shows "Show at HH:MM" only while pre-show, and cue info ("Next: X") only otherwise — the no-end-time mode has nowhere else to show cue info, since CountdownView never renders there |
 | CountdownView.swift | Show-window countdown (`-HH:MM:SS`) and overtime (`+HH:MM:SS`, flashing) |
+| QRCodeView.swift | Renders a string as a QR code via Core Image's built-in `CIQRCodeGenerator` (no external dependency). Shown top-left in `ContentView`, linking to the GitHub releases page, sized proportionally to screen size (clamped) rather than a fixed pixel size |
 | AppSettings.swift | ObservableObject; all persisted settings via UserDefaults, incl. `selectedDisplayID`, `showEndEnabled`, `autoOpenClockOnLaunch` |
 | Theme.swift | Theme model + Color↔hex helpers |
 | ThemeEditorView.swift | Standalone window for creating/editing/deleting themes |

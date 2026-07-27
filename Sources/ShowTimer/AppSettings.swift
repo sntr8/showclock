@@ -16,6 +16,7 @@ class AppSettings: ObservableObject {
     @Published var selectedThemeID: UUID = Theme.night.id { didSet { saveIfLoaded() } }
     @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID() { didSet { saveIfLoaded() } }
     @Published var autoOpenClockOnLaunch: Bool = false { didSet { saveIfLoaded() } }
+    @Published var showQRCode: Bool = true { didSet { saveIfLoaded() } }
 
     // Guards against `load()` itself triggering the didSet-save chain above:
     // without this, setting the first property (before the rest have been
@@ -100,6 +101,7 @@ class AppSettings: ObservableObject {
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
         d.set(autoOpenClockOnLaunch, forKey: "autoOpenClockOnLaunch")
+        d.set(showQRCode, forKey: "showQRCode")
         if let encoded = try? JSONEncoder().encode(themes) { d.set(encoded, forKey: "themes") }
     }
 
@@ -119,6 +121,9 @@ class AppSettings: ObservableObject {
         }
         if d.object(forKey: "autoOpenClockOnLaunch") != nil {
             autoOpenClockOnLaunch = d.bool(forKey: "autoOpenClockOnLaunch")
+        }
+        if d.object(forKey: "showQRCode") != nil {
+            showQRCode = d.bool(forKey: "showQRCode")
         }
         if let data = d.data(forKey: "themes"),
            let decoded = try? JSONDecoder().decode([Theme].self, from: data) {
