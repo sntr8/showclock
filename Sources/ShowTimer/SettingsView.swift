@@ -160,6 +160,16 @@ struct SettingsView: View {
             didAutoConnect = true
             qlab.start(host: settings.qlabHost, port: settings.qlabPort, passcode: settings.qlabPasscode)
             installClickToResignMonitor()
+            // Without this, launching via `swift run` (or any unbundled
+            // executable) never makes the app the frontmost/active one —
+            // its window is visible and clickable, but actual keyboard
+            // input keeps going to whatever WAS active (e.g. the terminal
+            // that launched it), since typing requires the *app* to be
+            // active, not just the window to be on top. The kiosk display
+            // window already does this explicitly; the main Settings window
+            // never did.
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
         }
         .onChange(of: qlab.isConnected) { _, connected in
             guard connected else { return }
