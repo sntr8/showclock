@@ -6,6 +6,7 @@ struct ShowTimerApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var qlab = QLabManager()
     @StateObject private var display = DisplayWindowController()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         // The first WindowGroup is the one macOS auto-opens at launch, so this
@@ -15,6 +16,7 @@ struct ShowTimerApp: App {
                 .environmentObject(settings)
                 .environmentObject(qlab)
                 .environmentObject(display)
+                .onAppear { appDelegate.display = display }
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 480, height: 760)
@@ -70,5 +72,26 @@ struct ShowTimerApp: App {
         }
         .windowResizability(.contentSize)
         .defaultSize(width: 500, height: 380)
+    }
+}
+
+// Guards against accidentally quitting mid-show: Cmd+Q (or Dock > Quit)
+// closes the clock display and drops the QLab connection instantly with no
+// warning otherwise, which would be disruptive to do by accident during a
+// live performance.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var display: DisplayWindowController?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let display, display.isShowing else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "The clock display is currently open."
+        alert.informativeText = "Quitting will close it and disconnect from QLab."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 }
