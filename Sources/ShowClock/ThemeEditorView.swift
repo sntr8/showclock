@@ -1,8 +1,12 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 struct ThemeEditorView: View {
     @EnvironmentObject var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
+    @State private var showImportError = false
+    @State private var importErrorMessage = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,7 +22,15 @@ struct ThemeEditorView: View {
             Divider()
 
             HStack {
-                Button("Add Theme") {
+                // A split control, not two separate buttons: clicking "+"
+                // adds a theme directly; only the chevron opens the menu.
+                Menu {
+                    Button("Export Custom Themes...") { exportThemes() }
+                        .disabled(!settings.themes.contains { !$0.isBuiltIn })
+                    Button("Import Themes...") { importThemes() }
+                } label: {
+                    Image(systemName: "plus")
+                } primaryAction: {
                     settings.themes.append(Theme(
                         id: UUID(),
                         name: "Custom",
@@ -28,6 +40,11 @@ struct ThemeEditorView: View {
                         accentHex: "#AAAAAA"
                     ))
                 }
+                .menuStyle(.button)
+                .buttonStyle(.bordered)
+                .fixedSize()
+                .help("Add Theme, or Export/Import from the menu")
+
                 Spacer()
                 Button("Done") { dismiss() }
                     .buttonStyle(.borderedProminent)
@@ -37,6 +54,60 @@ struct ThemeEditorView: View {
         }
         .frame(minWidth: 460, minHeight: 320)
         .onChange(of: settings.themes) { _, _ in settings.save() }
+        .alert("Couldn't Import Themes", isPresented: $showImportError) {
+            Button("OK") {}
+        } message: {
+            Text(importErrorMessage)
+        }
+    }
+
+    private func exportThemes() {
+        let custom = settings.themes.filter { !$0.isBuiltIn }
+        guard !custom.isEmpty, let data = try? JSONEncoder().encode(custom) else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "ShowClock Themes.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? data.write(to: url)
+    }
+
+    private func importThemes() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let data = try? Data(contentsOf: url) else {
+            importErrorMessage = "Couldn't read that file."
+            showImportError = true
+            return
+        }
+        // Accept either a full export (an array) or a single theme, so a
+        // hand-edited or individually-shared theme file still works.
+        let imported: [Theme]
+        if let array = try? JSONDecoder().decode([Theme].self, from: data) {
+            imported = array
+        } else if let single = try? JSONDecoder().decode(Theme.self, from: data) {
+            imported = [single]
+        } else {
+            importErrorMessage = "That file doesn't look like a ShowClock theme export."
+            showImportError = true
+            return
+        }
+        // Fresh IDs and forced isBuiltIn = false: an imported file claiming
+        // to be a built-in, or reusing an existing theme's ID, shouldn't be
+        // able to collide with or overwrite what's already here.
+        for theme in imported {
+            settings.themes.append(Theme(
+                id: UUID(),
+                name: theme.name,
+                isBuiltIn: false,
+                backgroundHex: theme.backgroundHex,
+                primaryHex: theme.primaryHex,
+                accentHex: theme.accentHex
+            ))
+        }
     }
 }
 
