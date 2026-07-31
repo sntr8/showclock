@@ -39,6 +39,18 @@ class QLabManager: ObservableObject {
     private var cueArmed: [String: Bool] = [:]             // refreshed each poll; can change live
     private var cueOrder: [String] = []                    // flattened leaf IDs, show order
     private var cueIndexForID: [String: Int] = [:]         // leaf id -> index in cueOrder; Group ids map to their first descendant leaf's index
+    // leaf id -> its immediate containing cue (Group or cue list) id.
+    // Lets recomputeTotalRemaining tell which leaves are siblings under the
+    // same Group, so it can check that Group's mode (see cueMode below).
+    private var parentGroupID: [String: String] = [:]
+    // permanent once known; a Group cue's playback mode (0=List, 1=Start
+    // first and enter, 2=Start first, 3=Timeline, 4=Start random, 5=Cart,
+    // 6=Playlist — see QLab's OSC dictionary). Only mode 3 (Timeline) starts
+    // every child simultaneously; that's the "one cue, multiple tracks"
+    // case (e.g. stereo stems or multitrack backing files grouped together)
+    // that recomputeTotalRemaining needs to sum once, not per track.
+    private var cueMode: [String: Int] = [:]
+    private static let timelineGroupMode = 3
     private var selectedCueID: String?
     // UDP has no disconnect signal — quitting QLab looks identical to a
     // silent network hiccup, so the only way to notice is a watchdog: if
@@ -132,6 +144,8 @@ class QLabManager: ObservableObject {
         cueArmed = [:]
         cueOrder = []
         cueIndexForID = [:]
+        parentGroupID = [:]
+        cueMode = [:]
         selectedCueID = nil
         lastReplyAt = nil
         DispatchQueue.main.async {
@@ -187,6 +201,8 @@ class QLabManager: ObservableObject {
         workspaceID = nil
         cueOrder = []
         cueIndexForID = [:]
+        parentGroupID = [:]
+        cueMode = [:]
         activeCueElapsed = [:]
         cueType = [:]
         cueDuration = [:]
@@ -327,9 +343,10 @@ class QLabManager: ObservableObject {
 
         } else if query.hasSuffix("/cueLists/uniqueIDs") {
             guard ok, let list = obj["data"] as? [[String: Any]] else { return }
-            let (order, indexForID) = Self.buildCueOrder(list)
+            let (order, indexForID, parentIDs) = Self.buildCueOrder(list)
             cueOrder = order
             cueIndexForID = indexForID
+            parentGroupID = parentIDs
             // Cues before the current position can never contribute to
             // recomputeTotalRemaining's sum (it only walks from startIndex
             // onward), so there's no reason to fetch or re-check their
@@ -342,6 +359,14 @@ class QLabManager: ObservableObject {
                     if cueType[id] == nil { sendOSC("/cue_id/\(id)/type") }
                     if cueDuration[id] == nil { sendOSC("/cue_id/\(id)/duration") }
                     sendOSC("/cue_id/\(id)/armed")
+                }
+                // Need each relevant leaf's containing cue's mode too, to
+                // know whether its siblings are a Timeline group (all start
+                // together — see cueMode's declaration) or play one at a
+                // time.
+                let relevantParents = Set(order[startIndex...].compactMap { parentIDs[$0] })
+                for id in relevantParents where cueMode[id] == nil {
+                    sendOSC("/cue_id/\(id)/mode")
                 }
             }
             remainingNeedsRecompute = true
@@ -365,6 +390,12 @@ class QLabManager: ObservableObject {
             guard ok, let id = Self.cueID(fromQuery: query) else { return }
             if let b = obj["data"] as? Bool { cueArmed[id] = b }
             else if let n = obj["data"] as? Int { cueArmed[id] = n != 0 }
+            remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/mode") {
+            guard ok, let id = Self.cueID(fromQuery: query) else { return }
+            if let m = obj["data"] as? Int { cueMode[id] = m }
+            else if let m = obj["data"] as? Double { cueMode[id] = Int(m) }
             remainingNeedsRecompute = true
         }
     }
@@ -402,18 +433,46 @@ class QLabManager: ObservableObject {
         let startIndex = currentStartIndex(in: cueOrder, indexForID: cueIndexForID)
 
         var total = 0.0
-        for id in cueOrder[startIndex...] {
-            guard let type = cueType[id], Self.playableCueTypes.contains(type) else { continue }
-            // Default true if we haven't heard back yet, to avoid
-            // systematically undercounting while armed-state replies are
-            // still in flight — better to briefly overestimate than hide
-            // real remaining time because of network lag.
-            guard cueArmed[id] ?? true else { continue }
-            guard let duration = cueDuration[id] else { continue }
-            let elapsed = activeCueElapsed[id] ?? 0
-            total += max(0, duration - elapsed)
+        var i = startIndex
+        while i < cueOrder.count {
+            let id = cueOrder[i]
+            let parent = parentGroupID[id]
+            // Leaves under a Timeline-mode Group (see cueMode's declaration)
+            // all start together when the Group fires — e.g. a single "cue"
+            // that's really multiple audio tracks (stereo stems, multitrack
+            // backing files) playing at once. buildCueOrder's depth-first
+            // walk means such siblings always sit consecutively in cueOrder,
+            // so this run only needs to look forward. They all finish around
+            // the same time as the longest one, so the whole cluster counts
+            // once — as its longest member's remaining time — instead of
+            // summing every track and inflating the total.
+            if let parent, cueMode[parent] == Self.timelineGroupMode {
+                var clusterMax = 0.0
+                while i < cueOrder.count, parentGroupID[cueOrder[i]] == parent {
+                    clusterMax = max(clusterMax, remainingSeconds(for: cueOrder[i]))
+                    i += 1
+                }
+                total += clusterMax
+            } else {
+                total += remainingSeconds(for: id)
+                i += 1
+            }
         }
         DispatchQueue.main.async { self.totalRemainingSeconds = total }
+    }
+
+    // A single leaf cue's own remaining playback time, or 0 if it's not a
+    // playable armed cue with a known duration yet.
+    private func remainingSeconds(for id: String) -> Double {
+        guard let type = cueType[id], Self.playableCueTypes.contains(type) else { return 0 }
+        // Default true if we haven't heard back yet, to avoid systematically
+        // undercounting while armed-state replies are still in flight —
+        // better to briefly overestimate than hide real remaining time
+        // because of network lag.
+        guard cueArmed[id] ?? true else { return 0 }
+        guard let duration = cueDuration[id] else { return 0 }
+        let elapsed = activeCueElapsed[id] ?? 0
+        return max(0, duration - elapsed)
     }
 
     // For runningOrPausedCues specifically: "cues".isEmpty isn't a reliable
@@ -442,26 +501,28 @@ class QLabManager: ObservableObject {
     // and a lookup from any cue ID (leaf or Group) to its position in that
     // order — a Group's position is its first descendant leaf's, since
     // selecting a Group in QLab means everything in it is about to play.
-    private static func buildCueOrder(_ cues: [[String: Any]]) -> (order: [String], indexForID: [String: Int]) {
+    private static func buildCueOrder(_ cues: [[String: Any]]) -> (order: [String], indexForID: [String: Int], parentGroupID: [String: String]) {
         var order: [String] = []
         var indexForID: [String: Int] = [:]
+        var parentGroupID: [String: String] = [:]
 
-        func visit(_ list: [[String: Any]]) {
+        func visit(_ list: [[String: Any]], parent: String?) {
             for cue in list {
                 guard let id = cue["uniqueID"] as? String else { continue }
                 let children = cue["cues"] as? [[String: Any]] ?? []
                 if children.isEmpty {
                     indexForID[id] = order.count
+                    if let parent { parentGroupID[id] = parent }
                     order.append(id)
                 } else {
                     let startIdx = order.count
-                    visit(children)
+                    visit(children, parent: id)
                     indexForID[id] = startIdx
                 }
             }
         }
-        visit(cues)
-        return (order, indexForID)
+        visit(cues, parent: nil)
+        return (order, indexForID, parentGroupID)
     }
 
     // query is e.g. "/cue_id/{id}/actionElapsed" after the "/reply" prefix
