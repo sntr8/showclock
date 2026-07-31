@@ -31,7 +31,7 @@ ShowClock puts a full-screen clock on an external display for stage managers, op
 
 ## Installing
 
-Download the latest `ShowClock.dmg` from [Releases](https://github.com/sntr8/showclock/releases), open it, and drag ShowClock into Applications.
+Download the latest `ShowClock-X.Y.Z.dmg` from [Releases](https://github.com/sntr8/showclock/releases), open it, and drag ShowClock into Applications.
 
 > [!IMPORTANT]
 > This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" (or, on first launch, offer no option at all until you do this): **right-click (or Control-click) `ShowClock.app` → Open → Open** again in the confirmation dialog. You only need to do this once.
@@ -56,7 +56,7 @@ To build a standalone `.app` (and a drag-to-Applications `.dmg`, which additiona
 
 ```
 ./Packaging/build-app.sh 1.0.0
-./Packaging/make-dmg.sh dist/ShowClock.app dist/ShowClock.dmg
+./Packaging/make-dmg.sh dist/ShowClock.app dist/ShowClock-1.0.0.dmg
 ```
 
 See [`docs/release-process.md`](docs/release-process.md) for how tagged releases get built and published, and [`CLAUDE.md`](CLAUDE.md) for architecture notes.

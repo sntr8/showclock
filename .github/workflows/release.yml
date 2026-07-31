@@ -2,7 +2,7 @@ name: Release
 
 # Triggered by pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`)
 # — not by merging to main. Builds and publishes a drag-to-Applications
-# ShowClock.dmg to GitHub Releases with notes built from commit subjects
+# ShowClock-X.Y.Z.dmg to GitHub Releases with notes built from commit subjects
 # since the last tag (not GitHub's own auto-generate-notes: that only lists
 # merged PRs, and this project pushes straight to main — it produced nothing
 # but a bare compare link).
@@ -38,7 +38,7 @@ jobs:
         run: brew install create-dmg
 
       - name: Build DMG
-        run: ./Packaging/make-dmg.sh "dist/ShowClock.app" "dist/ShowClock.dmg"
+        run: ./Packaging/make-dmg.sh "dist/ShowClock.app" "dist/ShowClock-${{ steps.version.outputs.version }}.dmg"
 
       - name: Generate release notes
         run: |
@@ -64,6 +64,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            "dist/ShowClock.dmg" \
+            "dist/ShowClock-${{ steps.version.outputs.version }}.dmg" \
             --title "ShowClock ${{ github.ref_name }}" \
             --notes-file notes.md
