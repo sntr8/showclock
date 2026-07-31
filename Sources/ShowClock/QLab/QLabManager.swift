@@ -39,10 +39,17 @@ class QLabManager: ObservableObject {
     private var cueArmed: [String: Bool] = [:]             // refreshed each poll; can change live
     private var cueOrder: [String] = []                    // flattened leaf IDs, show order
     private var cueIndexForID: [String: Int] = [:]         // leaf id -> index in cueOrder; Group ids map to their first descendant leaf's index
-    // leaf id -> its immediate containing cue (Group or cue list) id.
-    // Lets recomputeTotalRemaining tell which leaves are siblings under the
-    // same Group, so it can check that Group's mode (see cueMode below).
-    private var parentGroupID: [String: String] = [:]
+    // leaf id -> every containing cue's id, nearest first (immediate parent,
+    // then grandparent, ... up to the containing cue list). A Timeline group
+    // (see cueMode below) is often built from tracks each individually
+    // wrapped in their own sub-Group (e.g. for per-track fades) — so two
+    // leaves that genuinely start together can have *different* immediate
+    // parents, with their nearest shared Timeline ancestor several levels
+    // up. This field's first shipped version only recorded the immediate
+    // parent, so a Timeline group built that way still had every track
+    // summed independently — walking the whole chain in
+    // timelineClusterRoot(for:) is what actually fixes it.
+    private var ancestorChain: [String: [String]] = [:]
     // permanent once known; a Group cue's playback mode (0=List, 1=Start
     // first and enter, 2=Start first, 3=Timeline, 4=Start random, 5=Cart,
     // 6=Playlist — see QLab's OSC dictionary). Only mode 3 (Timeline) starts
@@ -154,7 +161,7 @@ class QLabManager: ObservableObject {
         cueArmed = [:]
         cueOrder = []
         cueIndexForID = [:]
-        parentGroupID = [:]
+        ancestorChain = [:]
         cueMode = [:]
         cueContinueMode = [:]
         selectedCueID = nil
@@ -212,7 +219,7 @@ class QLabManager: ObservableObject {
         workspaceID = nil
         cueOrder = []
         cueIndexForID = [:]
-        parentGroupID = [:]
+        ancestorChain = [:]
         cueMode = [:]
         cueContinueMode = [:]
         activeCueElapsed = [:]
@@ -355,10 +362,10 @@ class QLabManager: ObservableObject {
 
         } else if query.hasSuffix("/cueLists/uniqueIDs") {
             guard ok, let list = obj["data"] as? [[String: Any]] else { return }
-            let (order, indexForID, parentIDs) = Self.buildCueOrder(list)
+            let (order, indexForID, chains) = Self.buildCueOrder(list)
             cueOrder = order
             cueIndexForID = indexForID
-            parentGroupID = parentIDs
+            ancestorChain = chains
             // Cues before the current position can never contribute to
             // recomputeTotalRemaining's sum (it only walks from startIndex
             // onward), so there's no reason to fetch or re-check their
@@ -373,12 +380,12 @@ class QLabManager: ObservableObject {
                     if cueContinueMode[id] == nil { sendOSC("/cue_id/\(id)/continueMode") }
                     sendOSC("/cue_id/\(id)/armed")
                 }
-                // Need each relevant leaf's containing cue's mode too, to
-                // know whether its siblings are a Timeline group (all start
-                // together — see cueMode's declaration) or play one at a
-                // time.
-                let relevantParents = Set(order[startIndex...].compactMap { parentIDs[$0] })
-                for id in relevantParents where cueMode[id] == nil {
+                // Need every relevant leaf's *entire* ancestor chain's mode,
+                // not just its immediate parent's — see ancestorChain's
+                // declaration for why a Timeline group's own children can be
+                // wrapper Groups rather than the leaves themselves.
+                let relevantAncestors = Set(order[startIndex...].flatMap { chains[$0] ?? [] })
+                for id in relevantAncestors where cueMode[id] == nil {
                     sendOSC("/cue_id/\(id)/mode")
                 }
             }
@@ -475,18 +482,32 @@ class QLabManager: ObservableObject {
     }
 
     // True if `id` starts at essentially the same moment as `previous`, the
-    // immediately preceding leaf in cueOrder — either they're both children
-    // of the same Timeline-mode Group (cueMode == 3, an explicit container),
-    // or `previous` has continueMode Auto-continue (1), a flat chain with no
-    // Group involved: firing `previous` immediately fires `id` too. (A
-    // Group's mode is queried on the *parent's* ID; continueMode is queried
-    // on each leaf itself.)
+    // immediately preceding leaf in cueOrder — either they share a Timeline
+    // ancestor (see timelineClusterRoot(for:)), or `previous` has
+    // continueMode Auto-continue (1), a flat chain with no Group involved:
+    // firing `previous` immediately fires `id` too.
     private func startsTogether(_ id: String, asPrevious previous: String) -> Bool {
-        if let parent = parentGroupID[id], parent == parentGroupID[previous],
-           cueMode[parent] == Self.timelineGroupMode {
+        if let root = timelineClusterRoot(for: id), root == timelineClusterRoot(for: previous) {
             return true
         }
         return cueContinueMode[previous] == Self.autoContinueMode
+    }
+
+    // The outermost Timeline-mode ancestor in `leaf`'s chain, or nil if none
+    // of its ancestors are in Timeline mode. Two leaves under the *same*
+    // Timeline group start simultaneously even if their immediate parents
+    // differ — a Timeline group's direct children are often wrapper Groups
+    // rather than the tracks themselves (e.g. one sub-Group per track, for
+    // per-track fades), so this has to walk the whole chain rather than
+    // stop at the immediate parent. Using the outermost match (not the
+    // first/nearest) also correctly merges a Timeline group nested inside
+    // another Timeline group into one cluster.
+    private func timelineClusterRoot(for leaf: String) -> String? {
+        var root: String? = nil
+        for ancestor in ancestorChain[leaf] ?? [] where cueMode[ancestor] == Self.timelineGroupMode {
+            root = ancestor
+        }
+        return root
     }
 
     // A single leaf cue's own remaining playback time, or 0 if it's not a
@@ -529,28 +550,31 @@ class QLabManager: ObservableObject {
     // and a lookup from any cue ID (leaf or Group) to its position in that
     // order — a Group's position is its first descendant leaf's, since
     // selecting a Group in QLab means everything in it is about to play.
-    private static func buildCueOrder(_ cues: [[String: Any]]) -> (order: [String], indexForID: [String: Int], parentGroupID: [String: String]) {
+    private static func buildCueOrder(_ cues: [[String: Any]]) -> (order: [String], indexForID: [String: Int], ancestorChain: [String: [String]]) {
         var order: [String] = []
         var indexForID: [String: Int] = [:]
-        var parentGroupID: [String: String] = [:]
+        var ancestorChain: [String: [String]] = [:]
 
-        func visit(_ list: [[String: Any]], parent: String?) {
+        // `ancestors` is nearest-first: the immediate parent's id is
+        // prepended at each level down, so by the time a leaf is reached
+        // it's [immediate parent, grandparent, ..., containing cue list].
+        func visit(_ list: [[String: Any]], ancestors: [String]) {
             for cue in list {
                 guard let id = cue["uniqueID"] as? String else { continue }
                 let children = cue["cues"] as? [[String: Any]] ?? []
                 if children.isEmpty {
                     indexForID[id] = order.count
-                    if let parent { parentGroupID[id] = parent }
+                    ancestorChain[id] = ancestors
                     order.append(id)
                 } else {
                     let startIdx = order.count
-                    visit(children, parent: id)
+                    visit(children, ancestors: [id] + ancestors)
                     indexForID[id] = startIdx
                 }
             }
         }
-        visit(cues, parent: nil)
-        return (order, indexForID, parentGroupID)
+        visit(cues, ancestors: [])
+        return (order, indexForID, ancestorChain)
     }
 
     // query is e.g. "/cue_id/{id}/actionElapsed" after the "/reply" prefix
