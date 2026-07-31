@@ -51,6 +51,16 @@ class QLabManager: ObservableObject {
     // that recomputeTotalRemaining needs to sum once, not per track.
     private var cueMode: [String: Int] = [:]
     private static let timelineGroupMode = 3
+    // permanent once known; per-cue continueMode (0=Do Not Continue,
+    // 1=Auto-continue, 2=Auto-follow — see QLab's OSC dictionary). QLab's
+    // *other* way (besides a Timeline Group) to build a "several tracks, one
+    // Go press" cue: flat sibling cues in the list, each wired with
+    // Auto-continue, no Group involved at all. Auto-continue on a cue means
+    // the very next leaf in cueOrder starts essentially at the same moment
+    // this one does (Auto-follow, by contrast, waits for this cue to finish
+    // first — genuinely sequential, not simultaneous, so it's excluded).
+    private var cueContinueMode: [String: Int] = [:]
+    private static let autoContinueMode = 1
     private var selectedCueID: String?
     // UDP has no disconnect signal — quitting QLab looks identical to a
     // silent network hiccup, so the only way to notice is a watchdog: if
@@ -146,6 +156,7 @@ class QLabManager: ObservableObject {
         cueIndexForID = [:]
         parentGroupID = [:]
         cueMode = [:]
+        cueContinueMode = [:]
         selectedCueID = nil
         lastReplyAt = nil
         DispatchQueue.main.async {
@@ -203,6 +214,7 @@ class QLabManager: ObservableObject {
         cueIndexForID = [:]
         parentGroupID = [:]
         cueMode = [:]
+        cueContinueMode = [:]
         activeCueElapsed = [:]
         cueType = [:]
         cueDuration = [:]
@@ -358,6 +370,7 @@ class QLabManager: ObservableObject {
                 for id in order[startIndex...] {
                     if cueType[id] == nil { sendOSC("/cue_id/\(id)/type") }
                     if cueDuration[id] == nil { sendOSC("/cue_id/\(id)/duration") }
+                    if cueContinueMode[id] == nil { sendOSC("/cue_id/\(id)/continueMode") }
                     sendOSC("/cue_id/\(id)/armed")
                 }
                 // Need each relevant leaf's containing cue's mode too, to
@@ -397,6 +410,12 @@ class QLabManager: ObservableObject {
             if let m = obj["data"] as? Int { cueMode[id] = m }
             else if let m = obj["data"] as? Double { cueMode[id] = Int(m) }
             remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/continueMode") {
+            guard ok, let id = Self.cueID(fromQuery: query) else { return }
+            if let m = obj["data"] as? Int { cueContinueMode[id] = m }
+            else if let m = obj["data"] as? Double { cueContinueMode[id] = Int(m) }
+            remainingNeedsRecompute = true
         }
     }
 
@@ -432,33 +451,42 @@ class QLabManager: ObservableObject {
         }
         let startIndex = currentStartIndex(in: cueOrder, indexForID: cueIndexForID)
 
+        // Cues that start together — via either of QLab's two ways to build
+        // a "several tracks, one Go press" cue (see startsTogether) — finish
+        // around the same time as their longest member, so each such
+        // cluster counts once, using the max remaining time in it, instead
+        // of summing every track and inflating the total. buildCueOrder's
+        // depth-first walk keeps Group siblings consecutive, and
+        // auto-continue chains are inherently consecutive too, so each
+        // cluster only needs to look forward from its first member.
         var total = 0.0
         var i = startIndex
         while i < cueOrder.count {
-            let id = cueOrder[i]
-            let parent = parentGroupID[id]
-            // Leaves under a Timeline-mode Group (see cueMode's declaration)
-            // all start together when the Group fires — e.g. a single "cue"
-            // that's really multiple audio tracks (stereo stems, multitrack
-            // backing files) playing at once. buildCueOrder's depth-first
-            // walk means such siblings always sit consecutively in cueOrder,
-            // so this run only needs to look forward. They all finish around
-            // the same time as the longest one, so the whole cluster counts
-            // once — as its longest member's remaining time — instead of
-            // summing every track and inflating the total.
-            if let parent, cueMode[parent] == Self.timelineGroupMode {
-                var clusterMax = 0.0
-                while i < cueOrder.count, parentGroupID[cueOrder[i]] == parent {
-                    clusterMax = max(clusterMax, remainingSeconds(for: cueOrder[i]))
-                    i += 1
-                }
-                total += clusterMax
-            } else {
-                total += remainingSeconds(for: id)
-                i += 1
+            var clusterMax = remainingSeconds(for: cueOrder[i])
+            var j = i + 1
+            while j < cueOrder.count, startsTogether(cueOrder[j], asPrevious: cueOrder[j - 1]) {
+                clusterMax = max(clusterMax, remainingSeconds(for: cueOrder[j]))
+                j += 1
             }
+            total += clusterMax
+            i = j
         }
         DispatchQueue.main.async { self.totalRemainingSeconds = total }
+    }
+
+    // True if `id` starts at essentially the same moment as `previous`, the
+    // immediately preceding leaf in cueOrder — either they're both children
+    // of the same Timeline-mode Group (cueMode == 3, an explicit container),
+    // or `previous` has continueMode Auto-continue (1), a flat chain with no
+    // Group involved: firing `previous` immediately fires `id` too. (A
+    // Group's mode is queried on the *parent's* ID; continueMode is queried
+    // on each leaf itself.)
+    private func startsTogether(_ id: String, asPrevious previous: String) -> Bool {
+        if let parent = parentGroupID[id], parent == parentGroupID[previous],
+           cueMode[parent] == Self.timelineGroupMode {
+            return true
+        }
+        return cueContinueMode[previous] == Self.autoContinueMode
     }
 
     // A single leaf cue's own remaining playback time, or 0 if it's not a
