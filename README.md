@@ -35,6 +35,8 @@ Download the latest `ShowClock-X.Y.Z.dmg` from [Releases](https://github.com/snt
 
 > [!IMPORTANT]
 > This build isn't signed with a paid Apple Developer ID, so macOS Gatekeeper will say it's from an "unidentified developer" (or, on first launch, offer no option at all until you do this): **right-click (or Control-click) `ShowClock.app` → Open → Open** again in the confirmation dialog. You only need to do this once.
+>
+> Alternatively, clear the quarantine flag from Terminal: `xattr -cr /Applications/ShowClock.app`
 
 ## Using it with QLab
 
