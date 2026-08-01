@@ -63,6 +63,24 @@ struct AdvancedSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Overtime") {
+                HStack {
+                    Text("Show end delay")
+                        .frame(width: 100, alignment: .leading)
+                    Picker("", selection: $settings.overtimeHoldSeconds) {
+                        ForEach(Self.overtimeHoldOptions, id: \.self) { seconds in
+                            Text(Self.overtimeHoldLabel(seconds)).tag(seconds)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 140)
+                    .labelsHidden()
+                }
+                Text("How long to keep showing the overtime countdown after QLab reports the show has ended, before switching to the plain clock.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Updates") {
                 Toggle("Check for Updates Automatically", isOn: $settings.autoCheckForUpdates)
             }
@@ -89,6 +107,16 @@ struct AdvancedSettingsView: View {
                 MainActor.assumeIsolated { reposition(window) }
             }
         })
+    }
+
+    private static let overtimeHoldOptions = [0, 15, 30, 45, 60, 90, 120, 180, 300]
+
+    private static func overtimeHoldLabel(_ seconds: Int) -> String {
+        if seconds == 0 { return "Off" }
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return remainder == 0 ? "\(minutes)m" : "\(minutes)m \(remainder)s"
     }
 
     private func reposition(_ window: NSWindow) {

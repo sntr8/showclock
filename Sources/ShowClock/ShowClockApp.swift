@@ -6,16 +6,18 @@ struct ShowClockApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var qlab = QLabManager()
     @StateObject private var display = DisplayWindowController()
+    @StateObject private var miniWindow = MiniWindowController()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         // The first WindowGroup is the one macOS auto-opens at launch, so this
         // (not the theme editor below) is what appears on launch.
         WindowGroup(id: "main") {
-            MainView()
+            MainView(appDelegate: appDelegate)
                 .environmentObject(settings)
                 .environmentObject(qlab)
                 .environmentObject(display)
+                .environmentObject(miniWindow)
                 .onAppear { appDelegate.display = display }
                 .background(WindowAccessor { appDelegate.mainWindow = $0 })
         }

@@ -15,6 +15,12 @@ class QLabManager: ObservableObject {
     // list — lets the operator see in Settings whether the show is tracking
     // to run long, independent of anything shown on the clock itself.
     @Published var totalRemainingSeconds: Double? = nil
+    // When totalRemainingSeconds most recently dropped to (about) zero, or
+    // nil while it's still above zero / unknown. AppSettings.isShowingPlainClock
+    // uses this to hold the overtime countdown on screen for a short grace
+    // period after QLab says the show is done, instead of cutting to the
+    // plain clock the instant it does.
+    @Published private(set) var remainingReachedZeroAt: Date? = nil
 
     private(set) var host: String = "127.0.0.1"
     private(set) var port: UInt16 = 53000
@@ -69,6 +75,9 @@ class QLabManager: ObservableObject {
     private var cueContinueMode: [String: Int] = [:]
     private static let autoContinueMode = 1
     private var selectedCueID: String?
+    // Set the first time currentStartIndex finds a real selected/active cue
+    // position after connecting; see its use there for why this matters.
+    private var hasSeenCuePosition = false
     // UDP has no disconnect signal — quitting QLab looks identical to a
     // silent network hiccup, so the only way to notice is a watchdog: if
     // nothing at all has arrived in a while, assume it's gone.
@@ -165,12 +174,14 @@ class QLabManager: ObservableObject {
         cueMode = [:]
         cueContinueMode = [:]
         selectedCueID = nil
+        hasSeenCuePosition = false
         lastReplyAt = nil
         DispatchQueue.main.async {
             self.isConnected = false
             self.nextCueName = nil
             self.hasActiveCues = false
             self.totalRemainingSeconds = nil
+            self.remainingReachedZeroAt = nil
             self.statusMessage = "Not connected"
         }
     }
@@ -227,11 +238,13 @@ class QLabManager: ObservableObject {
         cueDuration = [:]
         cueArmed = [:]
         selectedCueID = nil
+        hasSeenCuePosition = false
         DispatchQueue.main.async {
             self.isConnected = false
             self.nextCueName = nil
             self.hasActiveCues = false
             self.totalRemainingSeconds = nil
+            self.remainingReachedZeroAt = nil
             self.statusMessage = "Connection lost"
         }
     }
@@ -442,8 +455,20 @@ class QLabManager: ObservableObject {
         guard !order.isEmpty else { return 0 }
         let selectedIndex = selectedCueID.flatMap { indexForID[$0] }
         let activeIndices = activeCueElapsed.keys.compactMap { indexForID[$0] }
-        let idx = ([selectedIndex].compactMap { $0 } + activeIndices).min() ?? 0
-        return min(max(idx, 0), order.count - 1)
+        if let idx = ([selectedIndex].compactMap { $0 } + activeIndices).min() {
+            hasSeenCuePosition = true
+            return min(max(idx, 0), order.count - 1)
+        }
+        // Nothing selected and nothing playing. Before the show's first Go,
+        // QLab still normally reports cue 1 as selected — so seeing neither
+        // here, after a real position has been observed at least once
+        // already, means the show played through to its last cue and QLab
+        // has nothing queued next (this is exactly what happens once the
+        // final cue in the list finishes, if nothing disarmed follows it to
+        // stay selected). Point one past the end so the walk below sums
+        // nothing, instead of defaulting to 0 and re-summing the entire,
+        // already-played show as if it were still ahead of the playhead.
+        return hasSeenCuePosition ? order.count : 0
     }
 
     // Sums the current cue's remaining time plus every armed, playable cue
@@ -453,7 +478,10 @@ class QLabManager: ObservableObject {
     // just activeCueElapsed (which only knows about cues already playing).
     private func recomputeTotalRemaining() {
         guard !cueOrder.isEmpty else {
-            DispatchQueue.main.async { self.totalRemainingSeconds = nil }
+            DispatchQueue.main.async {
+                self.totalRemainingSeconds = nil
+                self.remainingReachedZeroAt = nil
+            }
             return
         }
         let startIndex = currentStartIndex(in: cueOrder, indexForID: cueIndexForID)
@@ -478,7 +506,14 @@ class QLabManager: ObservableObject {
             total += clusterMax
             i = j
         }
-        DispatchQueue.main.async { self.totalRemainingSeconds = total }
+        DispatchQueue.main.async {
+            self.totalRemainingSeconds = total
+            if total <= 0.5 {
+                if self.remainingReachedZeroAt == nil { self.remainingReachedZeroAt = Date() }
+            } else {
+                self.remainingReachedZeroAt = nil
+            }
+        }
     }
 
     // True if `id` starts at essentially the same moment as `previous`, the

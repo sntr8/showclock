@@ -21,6 +21,14 @@ class AppSettings: ObservableObject {
     // clock switches to treating tonight's occurrence as upcoming. Rarely
     // needs changing, so it lives in the Cmd+, Settings scene.
     @Published var overnightCutoffHour: Int = 5 { didSet { saveIfLoaded() } }
+    // How long to keep showing the overtime countdown after QLab's own
+    // rest-of-show estimate reaches zero, before cutting to the plain clock.
+    // An instant cut read as jarring/alarming to operators — this gives them
+    // a moment to see the show actually finished instead of the display just
+    // changing out from under them. Configurable (Cmd+, → Overtime) since
+    // how long that grace period should be is a show-by-show/operator
+    // preference, not a fixed constant.
+    @Published var overtimeHoldSeconds: Int = 60 { didSet { saveIfLoaded() } }
     @Published var themes: [Theme] = [.day, .night] { didSet { saveIfLoaded() } }
     @Published var selectedThemeID: UUID = Theme.night.id { didSet { saveIfLoaded() } }
     @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID() { didSet { saveIfLoaded() } }
@@ -53,12 +61,12 @@ class AppSettings: ObservableObject {
     }
 
     // Whether the display should show the plain clock (vs. the countdown/
-    // overtime view) at a given moment. Pure function of settings + QLab
-    // state — no session-local "sticky" flag needed: once QLab's own
-    // rest-of-show estimate reaches zero, it naturally stays there (nothing
-    // spontaneously adds more cues), so this is safe to recompute every tick
-    // from scratch. Shared by the real display (ContentView) and the
-    // Settings display picker's live preview, so both always agree.
+    // overtime view) at a given moment. Almost a pure function of settings +
+    // QLab state — the one exception is remainingReachedZeroAt (owned by
+    // QLabManager, not recomputed here), which is what makes the switch to
+    // plain clock land `overtimeHoldSeconds` after QLab's estimate hits zero
+    // rather than instantly. Shared by the real display (ContentView) and
+    // the Settings display picker's live preview, so both always agree.
     func isShowingPlainClock(at now: Date, qlab: QLabManager) -> Bool {
         guard showEndEnabled else { return true }
         if now < showtimeDate { return true }
@@ -68,7 +76,9 @@ class AppSettings: ObservableObject {
         // Without a QLab connection there's no way to know, so don't assume
         // the show is over; keep showing overtime rather than guessing.
         if qlab.isConnected, let remaining = qlab.totalRemainingSeconds {
-            return remaining <= 0.5
+            guard remaining <= 0.5 else { return false }
+            guard let zeroAt = qlab.remainingReachedZeroAt else { return true }
+            return now.timeIntervalSince(zeroAt) >= TimeInterval(overtimeHoldSeconds)
         }
         return false
     }
@@ -144,6 +154,7 @@ class AppSettings: ObservableObject {
         d.set(showEndHour, forKey: "showEndHour")
         d.set(showEndMinute, forKey: "showEndMinute")
         d.set(overnightCutoffHour, forKey: "overnightCutoffHour")
+        d.set(overtimeHoldSeconds, forKey: "overtimeHoldSeconds")
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
         d.set(autoOpenClockOnLaunch, forKey: "autoOpenClockOnLaunch")
@@ -165,6 +176,7 @@ class AppSettings: ObservableObject {
         let eh = d.integer(forKey: "showEndHour"); if eh > 0 { showEndHour = eh }
         showEndMinute = d.integer(forKey: "showEndMinute")
         let oc = d.integer(forKey: "overnightCutoffHour"); if oc > 0 { overnightCutoffHour = oc }
+        if d.object(forKey: "overtimeHoldSeconds") != nil { overtimeHoldSeconds = d.integer(forKey: "overtimeHoldSeconds") }
         if let s = d.string(forKey: "selectedThemeID"), let id = UUID(uuidString: s) { selectedThemeID = id }
         if d.object(forKey: "selectedDisplayID") != nil {
             selectedDisplayID = CGDirectDisplayID(d.integer(forKey: "selectedDisplayID"))

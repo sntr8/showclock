@@ -9,6 +9,8 @@ struct MainView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var qlab: QLabManager
     @EnvironmentObject var display: DisplayWindowController
+    @EnvironmentObject var miniWindow: MiniWindowController
+    let appDelegate: AppDelegate
     @Environment(\.openWindow) private var openWindow
     @State private var portText: String = ""
     @State private var didAutoConnect = false
@@ -61,6 +63,13 @@ struct MainView: View {
                 }
 
                 Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
+
+                Button(miniWindow.isShowing ? "Hide Mini Window" : "Show Mini Window") {
+                    miniWindow.toggle(settings: settings, qlab: qlab, onScreen: appDelegate.mainWindow?.screen)
+                }
+                Text("A small floating clock pinned above other apps.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // MARK: QLab OSC
@@ -247,33 +256,51 @@ struct MainView: View {
 }
 
 // Operator-only visibility into whether the show is tracking to run long —
-// not shown on the clock itself, just here. This is the current cue's
-// remaining time plus every armed, playable (Audio/Video/Mic) cue still
-// ahead of it in the list — the whole rest of the show, not just what's
-// playing right now, so projecting it against the show end time is a
-// reasonable (if imperfect — cues firing concurrently each count in full, so
-// heavily overlapping shows will over-estimate a bit) overtime warning.
+// not shown on the clock itself, just here. Remaining time is the current
+// cue's remaining time plus every armed, playable (Audio/Video/Mic) cue
+// still ahead of it in the list — the whole rest of the show, not just
+// what's playing right now — so projecting it (both as a duration and as a
+// wall-clock end time) against the show end time is a reasonable (if
+// imperfect — cues firing concurrently each count in full, so heavily
+// overlapping shows will over-estimate a bit) overtime warning.
 private struct ShowRemainingView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var qlab: QLabManager
 
     var body: some View {
         if let remaining = qlab.totalRemainingSeconds {
-            let runsLong = settings.showEndEnabled
-                && Date().addingTimeInterval(remaining) > settings.showEndDate
-            HStack(spacing: 6) {
-                Text("Show remaining:")
-                    .foregroundStyle(.secondary)
-                Text(Self.formatDuration(remaining))
-                    .monospacedDigit()
-                    .foregroundStyle(runsLong ? .red : .primary)
-                if runsLong {
-                    Text("(overtime)")
-                        .foregroundStyle(.red)
+            let projectedEnd = Date().addingTimeInterval(remaining)
+            let runsLong = settings.showEndEnabled && projectedEnd > settings.showEndDate
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Show remaining:")
+                        .foregroundStyle(.secondary)
+                    Text(Self.formatDuration(remaining))
+                        .monospacedDigit()
+                        .foregroundStyle(runsLong ? .red : .primary)
+                    if runsLong {
+                        Text("(overtime)")
+                            .foregroundStyle(.red)
+                    }
+                }
+                HStack(spacing: 6) {
+                    Text("Ends earliest:")
+                        .foregroundStyle(.secondary)
+                    Text(Self.formatTime(projectedEnd))
+                        .monospacedDigit()
+                        .foregroundStyle(runsLong ? .red : .primary)
                 }
             }
             .font(.caption)
         }
+    }
+
+    private static func formatTime(_ date: Date) -> String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d:%02d",
+                      c.component(.hour, from: date),
+                      c.component(.minute, from: date),
+                      c.component(.second, from: date))
     }
 
     private static func formatDuration(_ seconds: Double) -> String {
