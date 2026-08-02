@@ -23,7 +23,8 @@ ShowClock puts a full-screen clock on an external display for stage managers, op
 
 - **Full-screen clock display**, pinned to whichever connected display you choose, with a live preview in Settings so you can see exactly what it'll show before opening it.
 - **QLab integration** over OSC: shows the next cue's name, and estimates the whole rest-of-show remaining time (current cue plus every armed cue still ahead of it) — not just what's playing right now.
-- **Optional show-end time**: countdown to it, then automatic overtime once it passes, reverting to a plain clock once QLab says the show is actually over. Skip it entirely and ShowClock just runs as a continuous clock.
+- **Optional show-end time**: countdown to it, then automatic overtime once it passes, reverting to a plain clock once QLab says the show is actually over (with a brief configurable hold so it doesn't cut over instantly). Skip it entirely and ShowClock just runs as a continuous clock.
+- **Pinned mini window**: a small always-on-top clock you can leave floating over other apps, for keeping an eye on the show without the full-screen display.
 - **Multiple displays**, with automatic re-detection if something connects or disconnects mid-show.
 - **Day/Night themes**, plus a built-in editor for your own.
 - **Update checking** against GitHub Releases, manual or automatic.
