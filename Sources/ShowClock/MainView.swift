@@ -55,12 +55,11 @@ struct MainView: View {
                     }
                     .buttonStyle(.borderedProminent)
 
-                    if let screen = settings.resolvedScreen {
-                        Text(screen.localizedName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
+                    // No display name here: the arrangement diagram above
+                    // labels every screen and marks the chosen one, so
+                    // repeating it beside the button said the same thing
+                    // twice — and ambiguously, since it sat between two
+                    // buttons and read as belonging to either.
                     Spacer()
 
                     Button(miniWindow.isShowing ? "Hide Mini Window" : "Show Mini Window") {
@@ -87,14 +86,19 @@ struct MainView: View {
                 // port box ~19pt below the host box beside it. LabeledContent
                 // declares which part is the label and which is the control,
                 // so the whole endpoint aligns as one.
-                LabeledContent("IP address") {
+                LabeledContent("IP address and port") {
                     HStack(spacing: 6) {
                         TextField("", text: $settings.qlabHost)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                             .focused($focusedField, equals: .host)
+                        // Nudged up ~2pt: a colon's dots sit down near the
+                        // baseline while its line box reserves ascender space
+                        // above, so left alone it reads visibly low against
+                        // the vertical centre of the two field boxes.
                         Text(":")
                             .foregroundStyle(.secondary)
+                            .offset(y: -2)
                         TextField("", text: $portText)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
