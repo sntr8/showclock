@@ -37,6 +37,17 @@ struct ScreenArrangementView: View {
 
     private func refreshScreens() {
         screens = Self.currentScreens()
+        // Re-point the selection if the display it names is gone. AppSettings
+        // .resolvedScreen already falls back to NSScreen.main, so the rest of
+        // the UI kept naming a real screen while this diagram — which matches
+        // on the raw id — showed nothing selected at all: no border, no live
+        // preview, just a blank rectangle contradicting the label next to the
+        // Open button. Unplug the chosen display and that was the state you
+        // came back to.
+        if !screens.contains(where: { $0.id == selectedDisplayID }),
+           let fallback = NSScreen.main?.displayID ?? screens.first?.id {
+            selectedDisplayID = fallback
+        }
         // NSScreen.screens can still report the previous layout at the moment
         // the notification lands — the window server hasn't necessarily
         // settled yet. A deferred second read picks up the final arrangement,
