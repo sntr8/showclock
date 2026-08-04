@@ -22,18 +22,34 @@ struct ClockView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let subFontSize = geo.size.height * 0.09
+            // Same sizing as CountdownView — see the comment there for why the
+            // size comes from width and why fixedSize() has to accompany the
+            // negative padding. One glyph shorter here (no leading sign), so
+            // the clock lands slightly larger than the countdown does.
+            let widthLimited = (geo.size.width * CountdownView.usableWidth)
+                / CountdownView.advanceRatio(for: timeString)
+            let heightLimited = (geo.size.height * CountdownView.maxCapFraction)
+                / CountdownView.capHeightRatio
+            let mainFontSize = min(widthLimited, heightLimited)
+            let lineBoxSlack = mainFontSize
+                * (CountdownView.lineHeightRatio - CountdownView.capHeightRatio) / 2
 
-            VStack(spacing: geo.size.height * 0.02) {
-                Spacer()
+            let subFontSize = geo.size.height * 0.13
+
+            // Pinned, not centred — see CountdownView for why: centring parks
+            // all the leftover space at the top and bottom borders.
+            VStack(spacing: 0) {
+                Spacer(minLength: geo.size.height * 0.01)
 
                 Text(timeString)
-                    .font(Font.system(size: geo.size.height * 0.82, weight: .bold).monospacedDigit())
+                    .font(Font.system(size: mainFontSize, weight: .bold).monospacedDigit())
                     .fontWidth(.compressed)
-                    .minimumScaleFactor(0.01)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity)
+                    .fixedSize()
+                    .padding(.vertical, -lineBoxSlack)
                     .foregroundStyle(settings.selectedTheme.primaryColor)
+
+                Spacer(minLength: geo.size.height * 0.01)
 
                 // Complementary to each other: "Show at" only makes sense
                 // while genuinely waiting for the show to start; cue info
@@ -43,21 +59,25 @@ struct ClockView: View {
                 if isPreShow {
                     Text("Show at \(showtimeString)")
                         .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
-                        .foregroundStyle(settings.selectedTheme.accentColor)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                        .foregroundStyle(settings.selectedTheme.accentColor)
                 } else if let nextCue = qlab.nextCueName {
                     // No else: nothing to show once there's no next cue,
                     // whether that's because QLab isn't connected or the show
                     // has simply reached its last one — "No cue selected"
                     // read like an operator mistake in both cases.
-                    Text("Next: \(nextCue)")
-                        .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
-                        .foregroundStyle(settings.selectedTheme.accentColor)
-                        .lineLimit(1)
+                    VStack(spacing: geo.size.height * 0.008) {
+                        Text("Next:")
+                        Text(nextCue)
+                    }
+                    .font(.system(size: subFontSize, weight: .regular, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .foregroundStyle(settings.selectedTheme.accentColor)
                 }
-
-                Spacer()
             }
+            .padding(.vertical, geo.size.height * 0.02)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

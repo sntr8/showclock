@@ -8,6 +8,12 @@ struct ContentView: View {
     // view hierarchy the window hosts — window -> hostingView -> environment
     // -> controller -> window, a genuine reference cycle threaded through
     // NSHostingView. A closure only captures what it needs.
+    // Height of the camera housing ("notch") on the screen this window is on,
+    // 0 elsewhere. The clock content is pinned to the top and bottom edges
+    // (see CountdownView), which on a notched MacBook runs the current-time
+    // line straight underneath the housing where it simply isn't visible.
+    // The background still extends under it — only the text is inset.
+    var topInset: CGFloat = 0
     let onClose: () -> Void
     @State private var now = Date()
     @State private var flashOn = true
@@ -35,11 +41,14 @@ struct ContentView: View {
                 settings.selectedTheme.backgroundColor
                     .ignoresSafeArea()
 
-                if showPlainClock {
-                    ClockView(now: now, isPreShow: isPreShow)
-                } else {
-                    CountdownView(now: now, flashOn: flashOn)
+                Group {
+                    if showPlainClock {
+                        ClockView(now: now, isPreShow: isPreShow)
+                    } else {
+                        CountdownView(now: now, flashOn: flashOn)
+                    }
                 }
+                .padding(.top, topInset)
 
                 // White backing regardless of theme: a black QR code on the
                 // Night theme's black background would be unreadable otherwise.

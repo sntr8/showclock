@@ -34,7 +34,10 @@ final class DisplayWindowController: ObservableObject {
     func show(on screen: NSScreen, settings: AppSettings, qlab: QLabManager, activate: Bool = true) {
         close()
 
-        let content = ContentView(onClose: { [weak self] in self?.close() })
+        let content = ContentView(
+            topInset: screen.safeAreaInsets.top,
+            onClose: { [weak self] in self?.close() }
+        )
             .environmentObject(settings)
             .environmentObject(qlab)
 
