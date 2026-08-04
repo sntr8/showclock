@@ -81,24 +81,23 @@ struct MainView: View {
 
             // MARK: QLab OSC
             Section("QLab OSC") {
+                // Host and port on one row, separated by a colon: they're a
+                // single endpoint, not two independent settings, and a port
+                // is at most five digits — on its own row it needed a
+                // full-width field it could never fill.
                 HStack {
-                    Text("IP address")
+                    Text("Address")
                         .frame(width: 90, alignment: .leading)
                     TextField("", text: $settings.qlabHost)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
                         .focused($focusedField, equals: .host)
-                }
-                HStack {
-                    Text("Port")
-                        .frame(width: 90, alignment: .leading)
-                    Spacer()
-                    // A port is at most five digits, so a full-width field
-                    // just advertised space that can never be used and made
-                    // the row look unbalanced next to the address above it.
+                    Text(":")
+                        .foregroundStyle(.secondary)
                     TextField("", text: $portText)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
-                        .frame(width: 76)
+                        .frame(width: 72)
                         .focused($focusedField, equals: .port)
                         .onAppear { portText = String(settings.qlabPort) }
                         .onChange(of: portText) { _, v in
