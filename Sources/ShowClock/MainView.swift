@@ -280,6 +280,31 @@ struct MainView: View {
         guard clickMonitor == nil else { return }
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             focusedField = nil
+            // Clearing focusedField only releases what SwiftUI's FocusState
+            // knows about. The show-time fields are NSDatePicker underneath
+            // and never joined it, so clicking empty space left them focused
+            // with the ring still on and no way to click out.
+            //
+            // Resigning unconditionally would defocus a field the moment you
+            // clicked into it, so hit-test first and only resign when the
+            // click landed on nothing that wants focus. The walk up the
+            // superview chain matters because hitTest returns the deepest
+            // subview, which for a control is usually some inner view that
+            // doesn't itself accept first responder.
+            if let window = event.window {
+                var view = window.contentView?.hitTest(event.locationInWindow)
+                var clickedSomethingFocusable = false
+                while let candidate = view {
+                    if candidate.acceptsFirstResponder {
+                        clickedSomethingFocusable = true
+                        break
+                    }
+                    view = candidate.superview
+                }
+                if !clickedSomethingFocusable {
+                    window.makeFirstResponder(nil)
+                }
+            }
             return event
         }
     }
