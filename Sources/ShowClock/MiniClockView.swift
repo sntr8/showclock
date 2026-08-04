@@ -1,20 +1,23 @@
 import SwiftUI
 
-// Content of the pinned mini window (see MiniWindowController): the same
-// countdown/clock text as the full kiosk display, plus QLab's own "how much
-// show is left" estimate (already shown to the operator in Settings via
-// ShowRemainingView) — the whole point of this window is to have both
+// The compact clock readout: the same countdown/clock text as the full kiosk
+// display, plus QLab's own "how much show is left" estimate (also shown to the
+// operator in Settings via ShowRemainingView) — the point being to have both
 // visible at a glance while working in another app.
-struct MiniClockView: View {
+//
+// Deliberately a view of its own rather than layout living inside
+// MiniClockView: the Settings display picker renders this exact same thing as
+// its preview, and the button beside it pops it out into the floating window.
+// A preview that drifted from what popping out actually produced would be
+// worse than no preview, so both render this and can't disagree.
+struct MiniClockContent: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var qlab: QLabManager
-    let onClose: () -> Void
     @State private var now = Date()
     @State private var flashOn = true
-    @State private var hoveringClose = false
 
-    let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    let flashTimer = Timer.publish(every: 1.0 / 3.0, on: .main, in: .common).autoconnect()
+    private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let flashTimer = Timer.publish(every: 1.0 / 3.0, on: .main, in: .common).autoconnect()
 
     private var showPlainClock: Bool { settings.isShowingPlainClock(at: now, qlab: qlab) }
     private var diff: TimeInterval { settings.showEndDate.timeIntervalSince(now) }
@@ -58,7 +61,7 @@ struct MiniClockView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 settings.selectedTheme.backgroundColor
                     .clipShape(RoundedRectangle(cornerRadius: 10))
 
@@ -82,24 +85,38 @@ struct MiniClockView: View {
                 }
                 .padding(geo.size.width * 0.06)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                // Mouse-only, matching ContentView's kiosk close button — this
-                // panel is a non-activating window with no title bar, so
-                // there's otherwise no way to dismiss it beyond the Settings
-                // toggle that opened it.
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(settings.selectedTheme.accentColor)
-                .padding(6)
-                .opacity(hoveringClose ? 0.9 : 0.25)
-                .onHover { hoveringClose = $0 }
             }
         }
-        .frame(minWidth: 160, minHeight: 80)
         .onReceive(clock) { now = $0 }
         .onReceive(flashTimer) { _ in flashOn.toggle() }
+    }
+}
+
+// Content of the popped-out window (see MiniWindowController): the shared
+// readout above, plus a way to dismiss it.
+struct MiniClockView: View {
+    @EnvironmentObject var settings: AppSettings
+    let onClose: () -> Void
+    @State private var hoveringClose = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            MiniClockContent()
+
+            // Mouse-only, matching ContentView's kiosk close button — this
+            // panel is a non-activating window with no title bar, so
+            // there's otherwise no way to dismiss it beyond the Settings
+            // toggle that opened it.
+            Button(action: onClose) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(settings.selectedTheme.accentColor)
+            .padding(6)
+            .opacity(hoveringClose ? 0.9 : 0.25)
+            .onHover { hoveringClose = $0 }
+        }
+        .frame(minWidth: 160, minHeight: 80)
     }
 }

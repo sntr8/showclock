@@ -3,6 +3,9 @@ import AppKit
 
 private enum SettingsField: Hashable {
     case host, port, passcode
+    // Not a text field, but it shares the focus state so the window can
+    // hand it initial focus — see .defaultFocus below.
+    case openDisplay
 }
 
 struct MainView: View {
@@ -54,6 +57,7 @@ struct MainView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .focused($focusedField, equals: .openDisplay)
 
                     // No display name here: the arrangement diagram above
                     // labels every screen and marks the chosen one, so
@@ -62,18 +66,10 @@ struct MainView: View {
                     // buttons and read as belonging to either.
                     Spacer()
 
-                    Button(miniWindow.isShowing ? "Hide Mini Window" : "Show Mini Window") {
+                    Button(miniWindow.isShowing ? "Close Pop-out" : "Pop Out Preview") {
                         miniWindow.toggle(settings: settings, qlab: qlab, onScreen: appDelegate.mainWindow?.screen)
                     }
                 }
-
-                // Directly under the row it describes, not below the
-                // auto-open toggle: stranded there it read as a caption for
-                // the toggle, which is about the kiosk display and has
-                // nothing to do with the mini window.
-                Text("Mini window: a small floating clock pinned above other apps.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
             }
@@ -190,6 +186,11 @@ struct MainView: View {
             }
         }
         .formStyle(.grouped)
+        // Otherwise the first display button in the arrangement diagram takes
+        // initial focus, so the keyboard's first Space press re-selects a
+        // display rather than doing the thing an operator opening Settings
+        // almost always wants next.
+        .defaultFocus($focusedField, .openDisplay)
         .frame(minWidth: 420, idealWidth: 480, minHeight: 700, idealHeight: 760)
         .onAppear {
             guard !didAutoConnect else { return }
@@ -212,6 +213,13 @@ struct MainView: View {
             // never did.
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+
+            // .defaultFocus alone didn't stick here — the arrangement
+            // diagram's first display button still took the ring — so claim
+            // it explicitly once the window is actually up and key.
+            DispatchQueue.main.async {
+                focusedField = .openDisplay
+            }
 
             if !settings.hasAskedAboutAutoUpdateCheck {
                 // Deferred a turn: calling runModal() synchronously this
