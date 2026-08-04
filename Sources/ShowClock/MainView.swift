@@ -146,18 +146,30 @@ struct MainView: View {
 
             // MARK: Show Times
             Section("Show Times") {
-                HStack {
-                    Text("Show starts")
-                    Spacer()
-                    HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute, use12Hour: settings.use12HourClock)
+                // Start and end on one row, like the OSC endpoint above: a
+                // show is a span, and reading "20:46 to 22:33" beats hunting
+                // two rows separated by the toggle that governs one of them.
+                // LabeledContent rather than a bare HStack — a grouped Form
+                // aligns each direct child of an HStack row independently,
+                // which drops the second field below the first.
+                LabeledContent("Show runs") {
+                    HStack(spacing: 6) {
+                        HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute, use12Hour: settings.use12HourClock)
+                        Text("to")
+                            .foregroundStyle(.secondary)
+                        if settings.showEndEnabled {
+                            HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute, use12Hour: settings.use12HourClock)
+                        } else {
+                            // Placeholder rather than nothing, so the row
+                            // doesn't reflow when the toggle is flipped.
+                            Text("no end")
+                                .foregroundStyle(.tertiary)
+                                .frame(width: settings.use12HourClock ? 120 : 96)
+                        }
+                    }
                 }
                 Toggle("Show end time", isOn: $settings.showEndEnabled)
                 if settings.showEndEnabled {
-                    HStack {
-                        Text("Show ends")
-                        Spacer()
-                        HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute, use12Hour: settings.use12HourClock)
-                    }
                     if settings.showEndDate.timeIntervalSince(settings.showtimeDate) < 0 ||
                         (settings.showEndHour < settings.showtimeHour ||
                          (settings.showEndHour == settings.showtimeHour && settings.showEndMinute <= settings.showtimeMinute)) {

@@ -158,6 +158,18 @@ class AppSettings: ObservableObject {
             : String(format: "%d:%02d %@", h, m, suffix)
     }
 
+    // Label for a whole hour (the overnight cutoff picker), in whatever
+    // format the clock is set to — it's a wall-clock time like any other.
+    func hourLabel(_ hour: Int) -> String {
+        var c = DateComponents()
+        c.year = 2000; c.month = 1; c.day = 1
+        c.hour = hour; c.minute = 0
+        guard let d = Calendar.current.date(from: c) else {
+            return String(format: "%02d:00", hour)
+        }
+        return clockString(d, includeSeconds: false)
+    }
+
     var showtimeDate: Date { activeWindow.start }
 
     // Returns the show end date, on the day after showtime if the show crosses midnight.

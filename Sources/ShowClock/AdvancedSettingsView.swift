@@ -47,14 +47,11 @@ struct AdvancedSettingsView: View {
 
             Section("Clock Format") {
                 Picker("Time format", selection: $settings.use12HourClock) {
-                    Text("24-hour (18:30)").tag(false)
-                    Text("12-hour (6:30 PM)").tag(true)
+                    Text("24-hour").tag(false)
+                    Text("12-hour").tag(true)
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
-                Text("Applies to the clock display, the pop-out and the show times below. The countdown itself is a duration, so it always reads -H:MM:SS.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Overnight Shows") {
@@ -63,7 +60,7 @@ struct AdvancedSettingsView: View {
                         .frame(width: 100, alignment: .leading)
                     Picker("", selection: $settings.overnightCutoffHour) {
                         ForEach(0..<24) { h in
-                            Text(String(format: "%02d:00", h)).tag(h)
+                            Text(settings.hourLabel(h)).tag(h)
                         }
                     }
                     .pickerStyle(.menu)
