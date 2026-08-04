@@ -81,19 +81,24 @@ struct MainView: View {
 
             // MARK: QLab OSC
             Section("QLab OSC") {
-                // Host and port on one row, separated by a colon: they're a
-                // single endpoint, not two independent settings, and a port
-                // is at most five digits — on its own row it needed a
-                // full-width field it could never fill.
                 HStack {
-                    Text("Address")
+                    Text("IP address")
                         .frame(width: 90, alignment: .leading)
                     TextField("", text: $settings.qlabHost)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .focused($focusedField, equals: .host)
-                    Text(":")
-                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Port")
+                        .frame(width: 90, alignment: .leading)
+                    Spacer()
+                    // A port is at most five digits, so a full-width field just
+                    // advertised space it could never use. Kept on its own row:
+                    // combining it with the address onto one line is the better
+                    // grouping, but a macOS Form renders the second field a
+                    // visible ~19pt lower than the first and neither fixed
+                    // widths nor nesting them in their own HStack corrected it.
                     TextField("", text: $portText)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
