@@ -45,6 +45,18 @@ struct AdvancedSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Clock Format") {
+                Picker("Time format", selection: $settings.use12HourClock) {
+                    Text("24-hour (18:30)").tag(false)
+                    Text("12-hour (6:30 PM)").tag(true)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                Text("Applies to the clock display, the pop-out and the show times below. The countdown itself is a duration, so it always reads -H:MM:SS.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Overnight Shows") {
                 HStack {
                     Text("Day cutoff")

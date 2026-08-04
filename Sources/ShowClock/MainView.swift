@@ -149,14 +149,14 @@ struct MainView: View {
                 HStack {
                     Text("Show starts")
                     Spacer()
-                    HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute)
+                    HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute, use12Hour: settings.use12HourClock)
                 }
                 Toggle("Show end time", isOn: $settings.showEndEnabled)
                 if settings.showEndEnabled {
                     HStack {
                         Text("Show ends")
                         Spacer()
-                        HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute)
+                        HourMinutePicker(hour: $settings.showEndHour, minute: $settings.showEndMinute, use12Hour: settings.use12HourClock)
                     }
                     if settings.showEndDate.timeIntervalSince(settings.showtimeDate) < 0 ||
                         (settings.showEndHour < settings.showtimeHour ||
@@ -310,7 +310,7 @@ private struct ShowRemainingView: View {
                     .foregroundStyle(.secondary)
                 Text("Ends earliest:")
                     .foregroundStyle(.secondary)
-                Text(Self.formatTime(projectedEnd))
+                Text(settings.clockString(projectedEnd))
                     .monospacedDigit()
                     .foregroundStyle(runsLong ? .red : .primary)
             }
@@ -318,13 +318,6 @@ private struct ShowRemainingView: View {
         }
     }
 
-    private static func formatTime(_ date: Date) -> String {
-        let c = Calendar.current
-        return String(format: "%02d:%02d:%02d",
-                      c.component(.hour, from: date),
-                      c.component(.minute, from: date),
-                      c.component(.second, from: date))
-    }
 
     private static func formatDuration(_ seconds: Double) -> String {
         let total = Int(seconds.rounded())
@@ -340,28 +333,38 @@ private struct ShowRemainingView: View {
 private struct HourMinutePicker: View {
     @Binding var hour: Int
     @Binding var minute: Int
+    let use12Hour: Bool
+
+    // Stored as two Ints (so the post-midnight logic in AppSettings keeps
+    // working on plain numbers), surfaced as a Date purely for the control.
+    private var time: Binding<Date> {
+        Binding(
+            get: {
+                var c = DateComponents()
+                c.year = 2000; c.month = 1; c.day = 1
+                c.hour = hour; c.minute = minute
+                return Calendar.current.date(from: c) ?? Date()
+            },
+            set: { newValue in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                hour = c.hour ?? 0
+                minute = c.minute ?? 0
+            }
+        )
+    }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Picker("", selection: $hour) {
-                ForEach(0..<24) { h in
-                    Text(String(format: "%02d", h)).tag(h)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 60)
+        // A native date field, not two menus: the minute menu was a 60-item
+        // dropdown, so setting 19:45 meant hunting two long lists. This types
+        // straight in (digits auto-advance hour -> minute -> AM/PM), arrows
+        // nudge by one, and it simply won't accept 25:00 — no parsing or
+        // clamping code to own. Locale is pinned to the app's own 12/24-hour
+        // setting rather than the system's, so these fields always read the
+        // way the stage display does.
+        DatePicker("", selection: time, displayedComponents: .hourAndMinute)
+            .datePickerStyle(.stepperField)
             .labelsHidden()
-
-            Text(":")
-
-            Picker("", selection: $minute) {
-                ForEach(0..<60) { m in
-                    Text(String(format: "%02d", m)).tag(m)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 60)
-            .labelsHidden()
-        }
+            .environment(\.locale, Locale(identifier: use12Hour ? "en_US" : "en_GB"))
+            .frame(width: use12Hour ? 120 : 96)
     }
 }

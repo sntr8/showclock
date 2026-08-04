@@ -6,18 +6,10 @@ struct ClockView: View {
     let now: Date
     let isPreShow: Bool
 
-    private var timeString: String {
-        let c = Calendar.current
-        return String(format: "%02d:%02d:%02d",
-                      c.component(.hour, from: now),
-                      c.component(.minute, from: now),
-                      c.component(.second, from: now))
-    }
+    private var timeString: String { settings.clockString(now) }
 
     private var showtimeString: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: settings.showtimeDate)
+        settings.clockString(settings.showtimeDate, includeSeconds: false)
     }
 
     var body: some View {
@@ -26,8 +18,15 @@ struct ClockView: View {
             // size comes from width and why fixedSize() has to accompany the
             // negative padding. One glyph shorter here (no leading sign), so
             // the clock lands slightly larger than the countdown does.
+            // Sized from a fixed-width template, not the live string. In
+            // 24-hour mode they're the same thing, but 12-hour swings between
+            // "9:45:02 PM" and "10:45:02 PM" — sizing off the current value
+            // would visibly resize the whole clock at 10:00 and again at 1:00.
+            // The template is the widest form, so shorter ones simply sit with
+            // a little more margin.
+            let sizingTemplate = settings.use12HourClock ? "00:00:00 PM" : "00:00:00"
             let widthLimited = (geo.size.width * CountdownView.usableWidth)
-                / CountdownView.advanceRatio(for: timeString)
+                / CountdownView.advanceRatio(for: sizingTemplate)
             let heightLimited = (geo.size.height * CountdownView.maxCapFraction)
                 / CountdownView.capHeightRatio
             let mainFontSize = min(widthLimited, heightLimited)

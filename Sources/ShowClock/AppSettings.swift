@@ -21,6 +21,10 @@ class AppSettings: ObservableObject {
     // clock switches to treating tonight's occurrence as upcoming. Rarely
     // needs changing, so it lives in the Cmd+, Settings scene.
     @Published var overnightCutoffHour: Int = 5 { didSet { saveIfLoaded() } }
+    // 24-hour by default: it's the theatre/broadcast convention, and it's what
+    // every build before this one showed, so an existing install doesn't
+    // silently change format under the operator.
+    @Published var use12HourClock: Bool = false { didSet { saveIfLoaded() } }
     // How long to keep showing the overtime countdown after QLab's own
     // rest-of-show estimate reaches zero, before cutting to the plain clock.
     // An instant cut read as jarring/alarming to operators — this gives them
@@ -132,6 +136,28 @@ class AppSettings: ObservableObject {
     }
 
     // Returns the showtime HH:MM on whichever day is actually in progress.
+    // One place decides how a wall-clock time reads, so the kiosk display,
+    // the mini window and Settings can't disagree. The countdown is
+    // deliberately NOT routed through here — "-00:45:12" is a duration, and
+    // AM/PM is meaningless on a duration.
+    func clockString(_ date: Date, includeSeconds: Bool = true) -> String {
+        let c = Calendar.current
+        var h = c.component(.hour, from: date)
+        let m = c.component(.minute, from: date)
+        let s = c.component(.second, from: date)
+        guard use12HourClock else {
+            return includeSeconds
+                ? String(format: "%02d:%02d:%02d", h, m, s)
+                : String(format: "%02d:%02d", h, m)
+        }
+        let suffix = h < 12 ? "AM" : "PM"
+        h = h % 12
+        if h == 0 { h = 12 }
+        return includeSeconds
+            ? String(format: "%d:%02d:%02d %@", h, m, s, suffix)
+            : String(format: "%d:%02d %@", h, m, suffix)
+    }
+
     var showtimeDate: Date { activeWindow.start }
 
     // Returns the show end date, on the day after showtime if the show crosses midnight.
@@ -154,6 +180,7 @@ class AppSettings: ObservableObject {
         d.set(showEndHour, forKey: "showEndHour")
         d.set(showEndMinute, forKey: "showEndMinute")
         d.set(overnightCutoffHour, forKey: "overnightCutoffHour")
+        d.set(use12HourClock, forKey: "use12HourClock")
         d.set(overtimeHoldSeconds, forKey: "overtimeHoldSeconds")
         d.set(selectedThemeID.uuidString, forKey: "selectedThemeID")
         d.set(Int(selectedDisplayID), forKey: "selectedDisplayID")
@@ -186,6 +213,9 @@ class AppSettings: ObservableObject {
         }
         if d.object(forKey: "showQRCode") != nil {
             showQRCode = d.bool(forKey: "showQRCode")
+        }
+        if d.object(forKey: "use12HourClock") != nil {
+            use12HourClock = d.bool(forKey: "use12HourClock")
         }
         if d.object(forKey: "autoCheckForUpdates") != nil {
             autoCheckForUpdates = d.bool(forKey: "autoCheckForUpdates")

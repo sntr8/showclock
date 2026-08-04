@@ -24,15 +24,7 @@ struct MiniClockContent: View {
     private var isOvertime: Bool { diff < 0 }
 
     private var mainText: String {
-        showPlainClock ? Self.formatClock(now) : CountdownView.formatCountdown(diff)
-    }
-
-    private static func formatClock(_ date: Date) -> String {
-        let c = Calendar.current
-        return String(format: "%02d:%02d:%02d",
-                      c.component(.hour, from: date),
-                      c.component(.minute, from: date),
-                      c.component(.second, from: date))
+        showPlainClock ? settings.clockString(now) : CountdownView.formatCountdown(diff)
     }
 
     // Matches ShowRemainingView's formatting in MainView, so the number

@@ -22,13 +22,7 @@ struct CountdownView: View {
         return diff < 0 ? "+\(digits)" : "-\(digits)"
     }
 
-    private var currentTimeString: String {
-        let c = Calendar.current
-        return String(format: "%02d:%02d:%02d",
-                      c.component(.hour, from: now),
-                      c.component(.minute, from: now),
-                      c.component(.second, from: now))
-    }
+    private var currentTimeString: String { settings.clockString(now) }
 
     // Real metrics for the face below (system bold, compressed, monospaced
     // digits), read off NSFont rather than estimated from a screenshot — a
