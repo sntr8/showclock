@@ -8,15 +8,42 @@ struct ScreenArrangementView: View {
     @Binding var selectedDisplayID: CGDirectDisplayID
     let theme: Theme
 
-    // NSScreen.screens is a live snapshot at read time, but nothing forces a
-    // re-render when a display connects/disconnects — so without this state
-    // (refreshed on the notification below) the picker just shows whatever
-    // was plugged in when the view last happened to redraw for some other
-    // reason, until the app restarts.
-    @State private var screens: [NSScreen] = NSScreen.screens
+    // A plain value snapshot of everything this diagram draws.
+    //
+    // Holding [NSScreen] here instead looked correct and silently never
+    // updated: NSScreen is a class, and rearranging or hot-plugging displays
+    // mutates the *existing* instances rather than producing new ones. So
+    // re-reading NSScreen.screens handed back an array of the same object
+    // identities, which compares equal to what @State already held — SwiftUI
+    // saw no change and skipped the redraw, even though the frames inside had
+    // moved. Copying the values out means a moved display genuinely differs.
+    private struct ScreenInfo: Identifiable, Equatable {
+        let id: CGDirectDisplayID
+        let frame: CGRect
+        let name: String
+    }
+
+    @State private var screens: [ScreenInfo] = ScreenArrangementView.currentScreens()
+
+    private static func currentScreens() -> [ScreenInfo] {
+        NSScreen.screens.map {
+            ScreenInfo(id: $0.displayID, frame: $0.frame, name: $0.localizedName)
+        }
+    }
 
     private var unionFrame: CGRect {
         screens.dropFirst().reduce(screens.first?.frame ?? .zero) { $0.union($1.frame) }
+    }
+
+    private func refreshScreens() {
+        screens = Self.currentScreens()
+        // NSScreen.screens can still report the previous layout at the moment
+        // the notification lands — the window server hasn't necessarily
+        // settled yet. A deferred second read picks up the final arrangement,
+        // otherwise a hot-plug leaves the diagram one change behind.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            screens = Self.currentScreens()
+        }
     }
 
     var body: some View {
@@ -29,8 +56,8 @@ struct ScreenArrangementView: View {
             let offsetY = (geo.size.height - union.height * scale) / 2
 
             ZStack {
-                ForEach(screens, id: \.displayID) { screen in
-                    let isSelected = screen.displayID == selectedDisplayID
+                ForEach(screens) { screen in
+                    let isSelected = screen.id == selectedDisplayID
                     let width = max(screen.frame.width * scale, 1)
                     let height = max(screen.frame.height * scale, 1)
                     let midX = (screen.frame.minX - union.minX) * scale + offsetX + width / 2
@@ -44,7 +71,7 @@ struct ScreenArrangementView: View {
                     // SwiftUI Lists/Forms specifically handle correctly
                     // alongside that, which a raw gesture recognizer isn't.
                     Button {
-                        selectedDisplayID = screen.displayID
+                        selectedDisplayID = screen.id
                     } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 4)
@@ -61,9 +88,17 @@ struct ScreenArrangementView: View {
                                     lineWidth: isSelected ? 2 : 1
                                 )
 
-                            Text(screen.localizedName)
+                            // Both states draw from the theme rather than
+                            // falling back to .secondary for the unselected
+                            // one: .secondary resolves against the system
+                            // appearance (dark), so it came out a pale grey
+                            // and vanished against the theme's own light
+                            // backgroundColor — the name was being rendered
+                            // all along, just invisibly, which read as "only
+                            // the selected display is labelled".
+                            Text(screen.name)
                                 .font(.system(size: 9))
-                                .foregroundStyle(isSelected ? theme.accentColor : .secondary)
+                                .foregroundStyle(theme.accentColor.opacity(isSelected ? 1 : 0.7))
                                 .padding(4)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         }
@@ -76,8 +111,21 @@ struct ScreenArrangementView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
+        // The notification alone wasn't enough: `screens` is @State, so it's
+        // seeded once and then only ever changed by a handler that is
+        // subscribed *while this view is on screen*. Plug or unplug a display
+        // with Settings closed and nothing observes it, so reopening Settings
+        // still showed the old arrangement and only relaunching fixed it.
+        // Re-reading on appear covers exactly that gap.
+        .onAppear { refreshScreens() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
-            screens = NSScreen.screens
+            refreshScreens()
+        }
+        // Belt and braces for the common case of plugging a display in while
+        // another app is focused: returning to ShowClock re-reads the layout
+        // even if the notification was missed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshScreens()
         }
     }
 }
