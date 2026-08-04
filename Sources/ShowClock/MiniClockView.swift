@@ -47,6 +47,15 @@ struct MiniClockView: View {
         return "Set remaining: \(Self.formatDuration(remaining))"
     }
 
+    // Mirrors ShowRemainingView's overtime check in MainView: the show's end
+    // time is fixed, so a projected end (now + QLab's own remaining-time
+    // estimate) past it means the show is running long.
+    private var runsLong: Bool {
+        guard let remaining = qlab.totalRemainingSeconds else { return false }
+        let projectedEnd = now.addingTimeInterval(remaining)
+        return settings.showEndEnabled && projectedEnd > settings.showEndDate
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topTrailing) {
@@ -68,6 +77,7 @@ struct MiniClockView: View {
                             .foregroundStyle(settings.selectedTheme.accentColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
+                            .opacity(runsLong && !flashOn ? 0 : 1)
                     }
                 }
                 .padding(geo.size.width * 0.06)

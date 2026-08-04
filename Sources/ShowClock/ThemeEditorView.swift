@@ -52,7 +52,10 @@ struct ThemeEditorView: View {
             }
             .padding(12)
         }
-        .frame(minWidth: 460, minHeight: 320)
+        // 460 was enough for "BG/Text/Accent"-width colour columns; the
+        // plain-language labels need more, and below this the row's trailing
+        // "Built-in" / delete control gets clipped off the right edge.
+        .frame(minWidth: 540, minHeight: 320)
         .onChange(of: settings.themes) { _, _ in settings.save() }
         .alert("Couldn't Import Themes", isPresented: $showImportError) {
             Button("OK") {}
@@ -121,9 +124,13 @@ private struct ThemeRowView: View {
                 .disabled(theme.isBuiltIn)
                 .frame(width: 90)
 
-            ColorPickerHex(label: "BG",     hex: $theme.backgroundHex)
-            ColorPickerHex(label: "Text",   hex: $theme.primaryHex)
-            ColorPickerHex(label: "Accent", hex: $theme.accentHex)
+            // Named for what each one paints on the display, rather than
+            // "BG/Text/Accent": "Accent" in particular gave no clue that it
+            // controls the current time, the Next: cue line and the mini
+            // window's remaining line, which made a first theme a guessing game.
+            ColorPickerHex(label: "Background", hex: $theme.backgroundHex)
+            ColorPickerHex(label: "Clock",      hex: $theme.primaryHex)
+            ColorPickerHex(label: "Details",    hex: $theme.accentHex)
 
             // Preview swatch
             HStack(spacing: 2) {
@@ -166,13 +173,21 @@ private struct ColorPickerHex: View {
     }
 
     var body: some View {
+        // Fixed column width, with the well sized to what AppKit actually
+        // draws. A macOS ColorPicker's intrinsic width is wider than the
+        // 28pt frame this used to impose, and it paints past that frame
+        // rather than clipping to it — so once the labels grew from
+        // "BG/Text/Accent" to "Background/Clock/Details" and widened the
+        // columns, neighbouring wells visibly overlapped each other.
         VStack(spacing: 2) {
             ColorPicker("", selection: binding, supportsOpacity: false)
                 .labelsHidden()
-                .frame(width: 28, height: 28)
+                .frame(width: 44, height: 24)
             Text(label)
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
+        .frame(width: 68)
     }
 }

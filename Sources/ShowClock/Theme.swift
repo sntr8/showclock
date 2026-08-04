@@ -18,7 +18,7 @@ struct Theme: Codable, Identifiable, Equatable {
         isBuiltIn: true,
         backgroundHex: "#FFFFFF",
         primaryHex: "#000000",
-        accentHex: "#555555"
+        accentHex: "#111111"
     )
 
     static let night = Theme(

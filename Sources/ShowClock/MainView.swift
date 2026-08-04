@@ -60,14 +60,17 @@ struct MainView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+
+                    Spacer()
+
+                    Button(miniWindow.isShowing ? "Hide Mini Window" : "Show Mini Window") {
+                        miniWindow.toggle(settings: settings, qlab: qlab, onScreen: appDelegate.mainWindow?.screen)
+                    }
                 }
 
                 Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
 
-                Button(miniWindow.isShowing ? "Hide Mini Window" : "Show Mini Window") {
-                    miniWindow.toggle(settings: settings, qlab: qlab, onScreen: appDelegate.mainWindow?.screen)
-                }
-                Text("A small floating clock pinned above other apps.")
+                Text("Mini window: a small floating clock pinned above other apps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -271,25 +274,23 @@ private struct ShowRemainingView: View {
         if let remaining = qlab.totalRemainingSeconds {
             let projectedEnd = Date().addingTimeInterval(remaining)
             let runsLong = settings.showEndEnabled && projectedEnd > settings.showEndDate
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Show remaining:")
-                        .foregroundStyle(.secondary)
-                    Text(Self.formatDuration(remaining))
-                        .monospacedDigit()
-                        .foregroundStyle(runsLong ? .red : .primary)
-                    if runsLong {
-                        Text("(overtime)")
-                            .foregroundStyle(.red)
-                    }
+            HStack(spacing: 6) {
+                Text("Show remaining:")
+                    .foregroundStyle(.secondary)
+                Text(Self.formatDuration(remaining))
+                    .monospacedDigit()
+                    .foregroundStyle(runsLong ? .red : .primary)
+                if runsLong {
+                    Text("(overtime)")
+                        .foregroundStyle(.red)
                 }
-                HStack(spacing: 6) {
-                    Text("Ends earliest:")
-                        .foregroundStyle(.secondary)
-                    Text(Self.formatTime(projectedEnd))
-                        .monospacedDigit()
-                        .foregroundStyle(runsLong ? .red : .primary)
-                }
+                Text("·")
+                    .foregroundStyle(.secondary)
+                Text("Ends earliest:")
+                    .foregroundStyle(.secondary)
+                Text(Self.formatTime(projectedEnd))
+                    .monospacedDigit()
+                    .foregroundStyle(runsLong ? .red : .primary)
             }
             .font(.caption)
         }
