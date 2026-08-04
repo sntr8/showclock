@@ -81,39 +81,35 @@ struct MainView: View {
 
             // MARK: QLab OSC
             Section("QLab OSC") {
-                HStack {
-                    Text("IP address")
-                        .frame(width: 90, alignment: .leading)
-                    TextField("", text: $settings.qlabHost)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .focused($focusedField, equals: .host)
+                // LabeledContent, not a bare HStack: with .formStyle(.grouped)
+                // a Form treats each direct child of an HStack row as its own
+                // element and aligns them independently, which rendered the
+                // port box ~19pt below the host box beside it. LabeledContent
+                // declares which part is the label and which is the control,
+                // so the whole endpoint aligns as one.
+                LabeledContent("IP address") {
+                    HStack(spacing: 6) {
+                        TextField("", text: $settings.qlabHost)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .host)
+                        Text(":")
+                            .foregroundStyle(.secondary)
+                        TextField("", text: $portText)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 72)
+                            .focused($focusedField, equals: .port)
+                            .onAppear { portText = String(settings.qlabPort) }
+                            .onChange(of: portText) { _, v in
+                                if let n = Int(v), n > 0 { settings.qlabPort = n }
+                            }
+                    }
                 }
-                HStack {
-                    Text("Port")
-                        .frame(width: 90, alignment: .leading)
-                    Spacer()
-                    // A port is at most five digits, so a full-width field just
-                    // advertised space it could never use. Kept on its own row:
-                    // combining it with the address onto one line is the better
-                    // grouping, but a macOS Form renders the second field a
-                    // visible ~19pt lower than the first and neither fixed
-                    // widths nor nesting them in their own HStack corrected it.
-                    TextField("", text: $portText)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 72)
-                        .focused($focusedField, equals: .port)
-                        .onAppear { portText = String(settings.qlabPort) }
-                        .onChange(of: portText) { _, v in
-                            if let n = Int(v), n > 0 { settings.qlabPort = n }
-                        }
-                }
-                HStack {
-                    Text("Passcode")
-                        .frame(width: 90, alignment: .leading)
+                LabeledContent("Passcode") {
                     SecureField("", text: $settings.qlabPasscode)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
                         .focused($focusedField, equals: .passcode)
                 }
                 Text("Only needed if the workspace has an OSC passcode set (Workspace Settings → OSC).")
