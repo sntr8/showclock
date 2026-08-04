@@ -17,6 +17,9 @@ ShowClock puts a full-screen clock on an external display for stage managers, op
     <td><img src="docs/screenshots/settings.png" alt="Settings window"><br><sub>Settings</sub></td>
     <td><img src="docs/screenshots/theme-editor.png" alt="Theme editor"><br><sub>Theme editor</sub></td>
   </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/mini-window.png" alt="Pinned mini clock window, Night theme"><br><sub>Mini window (Night theme), pinned above other apps</sub></td>
+  </tr>
 </table>
 
 ## Features
