@@ -147,12 +147,12 @@ struct MainView: View {
             // MARK: Show Times
             Section("Show Times") {
                 // Start and end on one row, like the OSC endpoint above: a
-                // show is a span, and reading "20:46 to 22:33" beats hunting
+                // show is a span, and reading "15:30 to 16:45" beats hunting
                 // two rows separated by the toggle that governs one of them.
                 // LabeledContent rather than a bare HStack — a grouped Form
                 // aligns each direct child of an HStack row independently,
                 // which drops the second field below the first.
-                LabeledContent("Show runs") {
+                LabeledContent("Showtime") {
                     HStack(spacing: 6) {
                         HourMinutePicker(hour: $settings.showtimeHour, minute: $settings.showtimeMinute, use12Hour: settings.use12HourClock)
                         Text("to")
