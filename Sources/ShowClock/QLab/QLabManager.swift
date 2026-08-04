@@ -43,6 +43,7 @@ class QLabManager: ObservableObject {
     private var cueDuration: [String: Double] = [:]        // permanent once known; doesn't change
     private var cueType: [String: String] = [:]            // permanent once known
     private var cueArmed: [String: Bool] = [:]             // refreshed each poll; can change live
+    private var cueListName: [String: String] = [:]        // permanent once known; only fetched for whatever becomes "next"
     private var cueOrder: [String] = []                    // flattened leaf IDs, show order
     private var cueIndexForID: [String: Int] = [:]         // leaf id -> index in cueOrder; Group ids map to their first descendant leaf's index
     // leaf id -> every containing cue's id, nearest first (immediate parent,
@@ -75,6 +76,14 @@ class QLabManager: ObservableObject {
     private var cueContinueMode: [String: Int] = [:]
     private static let autoContinueMode = 1
     private var selectedCueID: String?
+    // Backing state for settledPlayheadIndex — how long a moved playhead (or
+    // a just-stopped cue) is distrusted before the idle path will show it.
+    // Long enough to cover a poll tick plus QLab's own reporting lag; short
+    // enough that genuinely parking the playhead somewhere still updates.
+    private static let playheadSettleDelay: TimeInterval = 3
+    private var lastSettledSelectedCueID: String?
+    private var selectionChangedAt: Date?
+    private var lastPlayingAt: Date?
     // Set the first time currentStartIndex finds a real selected/active cue
     // position after connecting; see its use there for why this matters.
     private var hasSeenCuePosition = false
@@ -168,6 +177,10 @@ class QLabManager: ObservableObject {
         cueDuration = [:]
         cueType = [:]
         cueArmed = [:]
+        cueListName = [:]
+        lastSettledSelectedCueID = nil
+        selectionChangedAt = nil
+        lastPlayingAt = nil
         cueOrder = []
         cueIndexForID = [:]
         ancestorChain = [:]
@@ -237,6 +250,10 @@ class QLabManager: ObservableObject {
         cueType = [:]
         cueDuration = [:]
         cueArmed = [:]
+        cueListName = [:]
+        lastSettledSelectedCueID = nil
+        selectionChangedAt = nil
+        lastPlayingAt = nil
         selectedCueID = nil
         hasSeenCuePosition = false
         DispatchQueue.main.async {
@@ -345,22 +362,21 @@ class QLabManager: ObservableObject {
             // "listName" is the label QLab actually shows in its cue list (number + name);
             // "name" is just the custom name and is often an empty string, which would
             // otherwise win here and render as a blank "Next: " with nothing after it.
-            let name = cues?.first.flatMap { c -> String? in
-                // A disarmed cue won't actually fire on Go, so showing it as
-                // "Next" is misleading — QLab still reports it as selected
-                // even while disarmed.
-                guard isCueArmed(c) else { return nil }
-                if let listName = c["listName"] as? String, !listName.isEmpty { return listName }
-                if let n = c["name"] as? String, !n.isEmpty { return n }
-                return c["number"] as? String
+            if let c = cues?.first,
+               let id = c["uniqueID"] as? String,
+               let name = Self.displayName(of: c) {
+                cueListName[id] = name
             }
-            DispatchQueue.main.async { self.nextCueName = name }
             remainingNeedsRecompute = true
+            recomputeNextCue()
 
         } else if query.hasSuffix("/runningOrPausedCues") {
             guard ok else { return }
             let cues = obj["data"] as? [[String: Any]] ?? []
             DispatchQueue.main.async { self.hasActiveCues = !cues.isEmpty }
+            // What's playing decides what's next, so this has to re-resolve
+            // as cues start and stop, not only when the playhead moves.
+            defer { recomputeNextCue() }
 
             // runningOrPausedCues nests Group cues around their children;
             // only leaves (no "cues" of their own) are actual playable audio/
@@ -403,6 +419,14 @@ class QLabManager: ObservableObject {
                 }
             }
             remainingNeedsRecompute = true
+
+        } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/listName") {
+            guard ok, let id = Self.cueID(fromQuery: query) else { return }
+            // Cached even when empty, deliberately: a cue with no list name at
+            // all would otherwise never populate the cache, and the resolver
+            // below would re-request it on every single poll tick forever.
+            cueListName[id] = (obj["data"] as? String) ?? ""
+            recomputeNextCue()
 
         } else if query.hasPrefix("/cue_id/") && query.hasSuffix("/actionElapsed") {
             guard ok, let elapsed = obj["data"] as? Double, let id = Self.cueID(fromQuery: query) else { return }
@@ -469,6 +493,131 @@ class QLabManager: ObservableObject {
         // nothing, instead of defaulting to 0 and re-summing the entire,
         // already-played show as if it were still ahead of the playhead.
         return hasSeenCuePosition ? order.count : 0
+    }
+
+    // "listName" is the label QLab actually shows in its cue list (number +
+    // name); "name" is just the custom name and is often an empty string,
+    // which would otherwise win and render as a blank "Next: " with nothing
+    // after it.
+    private static func displayName(of cue: [String: Any]) -> String? {
+        if let listName = cue["listName"] as? String, !listName.isEmpty { return listName }
+        if let n = cue["name"] as? String, !n.isEmpty { return n }
+        return cue["number"] as? String
+    }
+
+    // The outermost cue containing a leaf — i.e. the entry sitting directly in
+    // the cue list, which is what QLab's own playhead names and what reads as
+    // "the next song". ancestorChain is nearest-first and stops below the cue
+    // list itself, so its last element is that top-level cue; an empty chain
+    // means the leaf already is one.
+    private func topLevelCueID(for leafID: String) -> String {
+        // buildCueOrder starts its walk at the cue *lists*, so each list is
+        // itself recorded as an ancestor and the chain reads
+        // [parent, ..., topLevelCue, cueList] — the last element is the list,
+        // and the one before it is the entry sitting in that list. Taking
+        // .last instead returned the cue list for every single leaf, which
+        // collapsed them all onto one id and made the "already playing" check
+        // below match everything.
+        guard let chain = ancestorChain[leafID], chain.count >= 2 else { return leafID }
+        return chain[chain.count - 2]
+    }
+
+    // The playhead's index, but only once it's trustworthy.
+    //
+    // Pressing Go mid-follow-chain moves QLab's playhead to the next cue
+    // needing a Go — songs ahead — and the cue that actually started doesn't
+    // show up in runningOrPausedCues until the following poll. In that gap
+    // nothing is "playing" as far as this class knows, so falling straight
+    // back to the playhead flashed a song several entries away for about a
+    // second before the running cues arrived and corrected it. On a display
+    // someone glances at for two seconds, briefly-wrong is worse than
+    // briefly-stale, so anything that just moved is held until it settles:
+    // nil here means "don't know yet, keep what's on screen".
+    //
+    // Only ever delays the *idle* path. While cues are running the answer
+    // comes from what's playing and updates immediately.
+    private func settledPlayheadIndex() -> Int? {
+        guard let now = selectedCueID else { return nil }
+        if now != lastSettledSelectedCueID {
+            lastSettledSelectedCueID = now
+            selectionChangedAt = Date()
+        }
+        // Nothing on screen yet (startup) — show the playhead right away
+        // rather than sitting blank waiting out the delay.
+        if nextCueName == nil { return cueIndexForID[now] }
+        let movedRecently = selectionChangedAt.map {
+            Date().timeIntervalSince($0) < Self.playheadSettleDelay
+        } ?? false
+        let stoppedRecently = lastPlayingAt.map {
+            Date().timeIntervalSince($0) < Self.playheadSettleDelay
+        } ?? false
+        guard !movedRecently && !stoppedRecently else { return nil }
+        return cueIndexForID[now]
+    }
+
+    // What will actually play next — which is not simply the playhead.
+    //
+    // QLab advances the playhead to the next cue needing a Go, so a run of
+    // cues chained by follows/auto-continue moves it past all of them at once.
+    // Reading it directly meant that mid-chain the display jumped straight to
+    // the manual cue seven songs away and announced it as "Next", skipping
+    // everything actually about to play. Same trap currentStartIndex above
+    // documents for the remaining-time sum, which is why this deliberately
+    // works off what's playing too rather than the selection alone.
+    private func recomputeNextCue() {
+        let resolved: String?
+        if cueOrder.isEmpty {
+            // No cue list yet (still connecting): the playhead's own name is
+            // the only thing available, and is right whenever nothing is running.
+            resolved = selectedCueID.flatMap { cueListName[$0] }
+        } else {
+            let activeIndices = activeCueElapsed.keys.compactMap { cueIndexForID[$0] }
+            if !activeCueElapsed.isEmpty { lastPlayingAt = Date() }
+            // The top-level cues currently sounding. Compared against below so
+            // that a song built from several stacked tracks doesn't announce
+            // itself as its own "next" as the walk steps between its leaves.
+            let activeTopLevel = Set(activeCueElapsed.keys.map { topLevelCueID(for: $0) })
+            // Something playing -> the next cue is the one after the last of
+            // them (cues that start together all count as "now"). Nothing
+            // playing -> the playhead is genuinely what a Go would fire.
+            let searchFrom: Int?
+            if let lastActive = activeIndices.max() {
+                searchFrom = lastActive + 1
+            } else if let settled = settledPlayheadIndex() {
+                searchFrom = settled
+            } else {
+                // Playhead moved but nothing is audible yet, and it's too soon
+                // to believe it — keep showing the last confident answer
+                // rather than flashing a wrong one. See settledPlayheadIndex.
+                return
+            }
+            // A disarmed cue won't fire on Go, so it isn't what's next.
+            let nextLeaf = searchFrom.flatMap { start -> String? in
+                guard start < cueOrder.count else { return nil }
+                return cueOrder[max(start, 0)...].first {
+                    (cueArmed[$0] ?? true) && !activeTopLevel.contains(topLevelCueID(for: $0))
+                }
+            }
+            if let nextLeaf {
+                // Name the containing top-level cue, not the leaf: cueOrder is
+                // flattened to leaves, so resolving the leaf directly showed
+                // the name of a track or sub-group inside the song ("SIDECHAIN")
+                // rather than the song an operator is looking for.
+                let namedID = topLevelCueID(for: nextLeaf)
+                if let cached = cueListName[namedID] {
+                    resolved = cached.isEmpty ? nil : cached
+                } else {
+                    // Only ever fetched for the one cue that becomes "next",
+                    // and cached permanently, so this costs a single query per
+                    // cue over a show rather than anything per-poll.
+                    sendOSC("/cue_id/\(namedID)/listName")
+                    resolved = nextCueName
+                }
+            } else {
+                resolved = nil
+            }
+        }
+        DispatchQueue.main.async { self.nextCueName = resolved }
     }
 
     // Sums the current cue's remaining time plus every armed, playable cue

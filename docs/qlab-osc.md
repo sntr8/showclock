@@ -29,6 +29,36 @@ JSON shape: `{"status": "ok", "data": [...], "address": "...", "workspace_id": "
 
 `/workspace/{id}/selectedCues` returns the currently highlighted cue in the QLab cue list — this is the cue that fires on the next Go press, i.e. the "next song." This is independent of whether a cue is currently running: QLab keeps the playhead on whatever cue is selected regardless of its play state, so a cue can be both "active" and still be what's reported here.
 
+**The playhead alone is not "next", though.** Pressing Go on a run of cues chained
+by follows/auto-continue advances the playhead past *all* of them in one step, to
+the next cue that actually needs a Go — so mid-chain it can sit seven songs ahead
+of what is about to play, and reporting it verbatim announced the wrong song.
+`recomputeNextCue` therefore resolves from what is *playing* whenever anything is:
+the next cue is the first armed leaf after the last active one, skipping any leaf
+belonging to a top-level cue that is already sounding (so a song built from stacked
+tracks doesn't announce itself). Only when nothing is running does the playhead win.
+
+Two further wrinkles. `cueOrder` is flattened to *leaves*, so resolving a leaf
+directly yields the name of a track or sub-group inside the song rather than the
+song — the name is taken from `topLevelCueID`, the entry sitting directly in the
+cue list. And because `buildCueOrder` starts its walk at the cue *lists*, each list
+is itself recorded as an ancestor: the chain reads `[parent, ..., topLevelCue,
+cueList]`, so the top-level cue is the *second-to-last* element, not the last.
+Taking the last collapsed every leaf onto the cue list's own id.
+
+Names are fetched per cue via `/cue_id/{id}/listName` only for whichever cue becomes
+"next", and cached forever — including empty replies, since a cue with no list name
+would otherwise be re-requested on every poll tick.
+
+**Settling.** QLab moves the playhead the instant Go is pressed, but the cue that
+started doesn't appear in `runningOrPausedCues` until the following poll. In that
+gap nothing is "playing", so falling straight back to the playhead flashed a song
+several entries away for about a second. `settledPlayheadIndex` distrusts a playhead
+that moved (or cues that stopped) within `playheadSettleDelay` (3s) and returns nil
+meaning "keep what's on screen" — on a display glanced at for two seconds,
+briefly-stale beats briefly-wrong. It only ever delays the idle path; while cues run
+the answer comes from what's playing and updates immediately.
+
 Relevant fields in each data item: `listName`, `name`, `number`. There is no `displayName` field. The app prefers `listName` (the label QLab actually shows in the cue list, e.g. "1: Track1.mp3") since `name` — the custom name — is frequently an empty string.
 
 QLab still reports a cue as "selected" even while it's disarmed, but a disarmed cue won't actually fire on Go — so the app checks `armed` and shows nothing ("No cue selected") rather than a cue that won't really play next. `armed` is encoded inconsistently by QLab (sometimes a JSON bool, sometimes an int 0/1), so `isCueArmed` checks both.
