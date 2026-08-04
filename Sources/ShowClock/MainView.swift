@@ -68,11 +68,15 @@ struct MainView: View {
                     }
                 }
 
-                Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
-
+                // Directly under the row it describes, not below the
+                // auto-open toggle: stranded there it read as a caption for
+                // the toggle, which is about the kiosk display and has
+                // nothing to do with the mini window.
                 Text("Mini window: a small floating clock pinned above other apps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("Open clock display automatically at launch", isOn: $settings.autoOpenClockOnLaunch)
             }
 
             // MARK: QLab OSC
@@ -87,8 +91,14 @@ struct MainView: View {
                 HStack {
                     Text("Port")
                         .frame(width: 90, alignment: .leading)
+                    Spacer()
+                    // A port is at most five digits, so a full-width field
+                    // just advertised space that can never be used and made
+                    // the row look unbalanced next to the address above it.
                     TextField("", text: $portText)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 76)
                         .focused($focusedField, equals: .port)
                         .onAppear { portText = String(settings.qlabPort) }
                         .onChange(of: portText) { _, v in
