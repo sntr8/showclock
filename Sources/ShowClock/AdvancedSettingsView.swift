@@ -40,7 +40,7 @@ struct AdvancedSettingsView: View {
                             }
                         }
                 }
-                Text("The local port QLab's OSC replies arrive on.")
+                Text("A port on this Mac that ShowClock listens on for QLab's replies — not a QLab setting. Only change it if something else is already using 53001.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

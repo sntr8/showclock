@@ -88,13 +88,15 @@ struct MainView: View {
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                             .focused($focusedField, equals: .host)
-                        // Nudged up ~2pt: a colon's dots sit down near the
+                        // Nudged to sit optically centred between the two
+                        // boxes. Vertically, a colon's dots sit down near the
                         // baseline while its line box reserves ascender space
-                        // above, so left alone it reads visibly low against
-                        // the vertical centre of the two field boxes.
+                        // above. Horizontally, its left side bearing is wider
+                        // than its right, so equal HStack spacing still left
+                        // the dots ~2.5pt closer to the port field.
                         Text(":")
                             .foregroundStyle(.secondary)
-                            .offset(y: -2)
+                            .offset(x: -2.5, y: -2)
                         TextField("", text: $portText)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
